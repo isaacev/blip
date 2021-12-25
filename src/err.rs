@@ -34,6 +34,7 @@ impl std::fmt::Display for Point {
   }
 }
 
+#[derive(Debug)]
 pub struct Span {
   pub start: Point,
   pub end: Point,
@@ -49,27 +50,36 @@ impl Span {
   }
 }
 
-pub struct Located<T> {
-  pub span: Span,
-  pub thing: T,
-}
-
-impl<T> Located<T> {
-  pub fn new(span: Span, thing: T) -> Located<T> {
-    Located { span, thing }
+impl From<Point> for Span {
+  fn from(pt: Point) -> Span {
+    Span {
+      start: pt,
+      end: pt.next(' '),
+    }
   }
 }
 
-impl<T> std::fmt::Debug for Located<T>
-where
-  T: std::fmt::Debug,
-{
+pub struct Source<'a> {
+  pub name: &'a str,
+  pub contents: &'a str,
+}
+
+pub struct Error<'a> {
+  pub source: &'a Source<'a>,
+  pub span: Span,
+  pub message: String,
+}
+
+impl<'a> std::fmt::Debug for Error<'a> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(
       f,
-      "{: <12} {:?}",
-      format!("{}", self.span.start),
-      self.thing
+      "Error: {message} at {position} in {filename}",
+      message = self.message,
+      position = self.span.start,
+      filename = self.source.name
     )
   }
 }
+
+pub type Result<'a, T> = std::result::Result<T, Error<'a>>;
