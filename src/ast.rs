@@ -3,6 +3,7 @@ use super::print::{Document, Printable};
 #[derive(Debug)]
 pub enum Expr<'a> {
   Let(Vec<Binding<'a>>, Box<Expr<'a>>),
+  Print(Box<Expr<'a>>),
   Binary(Box<Expr<'a>>, &'a str, Box<Expr<'a>>),
   Name(Name<'a>),
   Integer(u64),
@@ -36,6 +37,10 @@ impl<'a> Printable<'a> for Expr<'a> {
         .dec()
         .write(")")
         .dec(),
+      Expr::Print(expr) => Document::new()
+        .write("(print ")
+        .then(expr.to_doc())
+        .write(")"),
       Expr::Binary(left, oper, right) => Document::new()
         .write("(")
         .write(oper)

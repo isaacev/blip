@@ -308,6 +308,7 @@ mod parser {
       match (self.kind, self.lexeme) {
         (Kind::Symbol, "+") => UNARY,
         (Kind::Symbol, "-") => UNARY,
+        (Kind::Word, "print") => UNARY,
         _ => LOWEST,
       }
     }
@@ -455,6 +456,11 @@ mod parser {
       Ok(ast::Expr::Let(bindings, Box::new(body)))
     }
 
+    fn print_expr(&mut self, _keyword: Token<'a>) -> err::Result<'a, ast::Expr<'a>> {
+      let expr = self.expr(UNARY)?;
+      Ok(ast::Expr::Print(Box::new(expr)))
+    }
+
     fn name_expr(&mut self, word: Token<'a>) -> err::Result<'a, ast::Expr<'a>> {
       let name = ast::Name(word.lexeme);
       Ok(ast::Expr::Name(name))
@@ -473,6 +479,8 @@ mod parser {
     fn prefix_expr(&mut self) -> err::Result<'a, ast::Expr<'a>> {
       if let Some(keyword) = self.next_if_lexeme("let")? {
         self.let_expr(keyword)
+      } else if let Some(keyword) = self.next_if_lexeme("print")? {
+        self.print_expr(keyword)
       } else if let Some(word) = self.next_if_kind(Kind::Word)? {
         self.name_expr(word)
       } else if let Some(integer) = self.next_if_kind(Kind::Integer)? {
