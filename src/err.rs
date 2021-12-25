@@ -59,13 +59,13 @@ impl From<Point> for Span {
   }
 }
 
-pub struct Source<'a> {
-  pub name: &'a str,
-  pub contents: &'a str,
+pub struct Source {
+  pub name: String,
+  pub contents: String,
 }
 
 pub struct Error<'a> {
-  pub source: &'a Source<'a>,
+  pub source: &'a Source,
   pub span: Span,
   pub message: String,
 }

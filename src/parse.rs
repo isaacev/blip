@@ -94,7 +94,7 @@ mod lexer {
   }
 
   impl Scanner<'_> {
-    pub fn new<'a>(src: &Source<'a>) -> Scanner<'a> {
+    pub fn new<'a>(src: &'a Source) -> Scanner<'a> {
       Scanner {
         chars: src.contents.chars(),
         next_point: Point::new(),
@@ -171,7 +171,7 @@ mod lexer {
   }
 
   pub struct Lexer<'a> {
-    source: &'a Source<'a>,
+    source: &'a Source,
     scanner: Peekable<Scanner<'a>>,
     acc: Option<Accumulator>,
     lookahead: Option<Option<Token<'a>>>,
@@ -179,7 +179,7 @@ mod lexer {
   }
 
   impl<'a> Lexer<'a> {
-    pub fn new(source: &'a Source<'a>) -> Self {
+    pub fn new(source: &'a Source) -> Self {
       let scanner = Scanner::new(source);
       let last_read_point = scanner.next_point;
       Lexer {
@@ -207,7 +207,7 @@ mod lexer {
     fn pop(&mut self) -> Token<'a> {
       let acc = self.acc.take().unwrap();
       let span = Span::new(acc.start, acc.end);
-      let lexeme = span.to_slice(self.source.contents);
+      let lexeme = span.to_slice(&self.source.contents);
       let token = Token::new(acc.kind, span, lexeme);
       token
     }
@@ -327,7 +327,7 @@ mod parser {
   }
 
   pub struct Parser<'a> {
-    source: &'a Source<'a>,
+    source: &'a Source,
     lexer: Lexer<'a>,
   }
 
@@ -442,7 +442,7 @@ mod parser {
       let name = self.name()?;
       self.next_token(Kind::Symbol, "=")?;
       let expr = self.expr(LOWEST)?;
-      Ok(ast::Binding(name, Box::new(expr)))
+      Ok(ast::Binding(name, expr))
     }
 
     fn let_expr(&mut self, _keyword: Token<'a>) -> err::Result<'a, ast::Expr<'a>> {
@@ -526,8 +526,8 @@ mod parser {
     }
   }
 
-  impl<'a> From<&'a Source<'a>> for Parser<'a> {
-    fn from(source: &'a Source<'a>) -> Parser<'a> {
+  impl<'a> From<&'a Source> for Parser<'a> {
+    fn from(source: &'a Source) -> Parser<'a> {
       Parser {
         source,
         lexer: Lexer::new(source),
@@ -536,10 +536,9 @@ mod parser {
   }
 }
 
-pub fn parse<'a>(source: &'a super::err::Source<'a>) {
-  let mut parser = parser::Parser::from(source);
-  match parser.expr(parser::LOWEST) {
-    Ok(expr) => println!("{:?}", expr),
-    Err(err) => eprintln!("{:?}", err),
-  }
+use super::ast;
+use super::err;
+
+pub fn parse<'a>(source: &'a err::Source) -> err::Result<ast::Expr<'a>> {
+  parser::Parser::from(source).expr(parser::LOWEST)
 }
