@@ -18,7 +18,10 @@ pub fn assert_ast(contents: String, expected: &str) {
   };
 
   let found: String = match parse::parse(&source) {
-    Err(_err) => unreachable!(),
+    Err(err) => {
+      eprintln!("{:?}", err);
+      unreachable!()
+    }
     Ok(expr) => {
       let mut printer = print::StringPrinter::new();
       expr.to_doc().print(&mut printer);
