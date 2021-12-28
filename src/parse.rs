@@ -84,6 +84,7 @@ mod chars {
 
 mod lexer {
   use super::super::err::{Point, Source, Span};
+  use super::super::syntax::token::{Kind, Token};
   use super::chars;
   use std::iter::Peekable;
   use std::str::Chars;
@@ -113,42 +114,6 @@ mod lexer {
       } else {
         None
       }
-    }
-  }
-
-  #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-  pub enum Kind {
-    Symbol,
-    Word,
-    Integer,
-    Float,
-    Error,
-  }
-
-  impl std::fmt::Display for Kind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-      let name = match self {
-        Kind::Symbol => "symbol",
-        Kind::Word => "word",
-        Kind::Integer => "integer",
-        Kind::Float => "float",
-        Kind::Error => "error",
-      };
-
-      write!(f, "{}", name)
-    }
-  }
-
-  #[derive(Debug)]
-  pub struct Token<'a> {
-    pub kind: Kind,
-    pub span: Span,
-    pub lexeme: &'a str,
-  }
-
-  impl<'a> Token<'a> {
-    fn new(kind: Kind, span: Span, lexeme: &'a str) -> Token<'a> {
-      Token { kind, span, lexeme }
     }
   }
 
@@ -284,10 +249,11 @@ mod lexer {
 }
 
 mod parser {
-  use super::super::ast;
   use super::super::err;
-  use super::super::err::{Source, Span};
-  use super::lexer::{Kind, Lexer, Token};
+  use super::super::err::{AsSpan, Source, Span};
+  use super::super::syntax::cst;
+  use super::super::syntax::token::{Kind, Token};
+  use super::lexer::Lexer;
 
   #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
   pub struct Precedence(u8);
@@ -397,19 +363,19 @@ mod parser {
       }
     }
 
-    fn next_kind(&mut self, expect: Kind) -> err::Result<'a, &'a str> {
+    fn next_kind(&mut self, expect: Kind) -> err::Result<'a, Token<'a>> {
       match self.next()? {
-        Some(Token { kind, lexeme, .. }) if kind == expect => Ok(lexeme),
+        Some(tok) if tok.kind == expect => Ok(tok),
         Some(tok) => Err(self.err_wanted_token_found_token(expect, tok)),
         None => Err(self.err_wanted_token_found_eof(expect)),
       }
     }
 
-    fn next_token(&mut self, ekind: Kind, elexeme: &str) -> err::Result<'a, &'a str> {
+    fn next_token(&mut self, kind: Kind, lexeme: &str) -> err::Result<'a, Token<'a>> {
       match self.next()? {
-        Some(Token { kind, lexeme, .. }) if kind == ekind && lexeme == elexeme => Ok(lexeme),
-        Some(tok) => Err(self.err_wanted_token_found_token(ekind, tok)),
-        None => Err(self.err_wanted_token_found_eof(ekind)),
+        Some(tok) if tok.kind == kind && tok.lexeme == lexeme => Ok(tok),
+        Some(tok) => Err(self.err_wanted_token_found_token(kind, tok)),
+        None => Err(self.err_wanted_token_found_eof(kind)),
       }
     }
 
@@ -434,59 +400,61 @@ mod parser {
       }
     }
 
-    fn name(&mut self) -> err::Result<'a, ast::Name<'a>> {
+    fn name(&mut self) -> err::Result<'a, cst::Name<'a>> {
       let name = self.next_kind(Kind::Word)?;
-      Ok(ast::Name(name))
+      Ok(cst::Name(name))
     }
 
-    fn binding(&mut self) -> err::Result<'a, ast::Binding<'a>> {
+    fn binding(&mut self) -> err::Result<'a, cst::Binding<'a>> {
       let name = self.name()?;
       self.next_token(Kind::Symbol, "=")?;
       let expr = self.expr(LOWEST)?;
-      Ok(ast::Binding(name, expr))
+      Ok(cst::Binding { name, expr })
     }
 
-    fn let_expr(&mut self, _keyword: Token<'a>) -> err::Result<'a, ast::Expr<'a>> {
+    fn let_expr(&mut self, keyword: Token<'a>) -> err::Result<'a, cst::Let<'a>> {
       let mut bindings = vec![self.binding()?];
       while self.peek_if_not_lexeme("in") {
         bindings.push(self.binding()?);
       }
       self.next_token(Kind::Word, "in")?;
       let body = self.expr(LOWEST)?;
-      Ok(ast::Expr::Let(bindings, Box::new(body)))
+      let span = keyword.as_span().unify(&body.as_span());
+      Ok(cst::Let {
+        span,
+        bindings,
+        body: Box::new(body),
+      })
     }
 
-    fn print_expr(&mut self, _keyword: Token<'a>) -> err::Result<'a, ast::Expr<'a>> {
-      let expr = self.expr(UNARY)?;
-      Ok(ast::Expr::Print(Box::new(expr)))
+    fn print_expr(&mut self, operand: Token<'a>) -> err::Result<'a, cst::Unary<'a>> {
+      let right = Box::new(self.expr(UNARY)?);
+      Ok(cst::Unary { operand, right })
     }
 
-    fn name_expr(&mut self, word: Token<'a>) -> err::Result<'a, ast::Expr<'a>> {
-      let name = ast::Name(word.lexeme);
-      Ok(ast::Expr::Name(name))
+    fn name_expr(&mut self, word: Token<'a>) -> err::Result<'a, cst::Name<'a>> {
+      Ok(cst::Name(word))
     }
 
-    fn integer_expr(&mut self, integer: Token<'a>) -> err::Result<'a, ast::Expr<'a>> {
-      let value = integer.lexeme.parse::<u64>().unwrap();
-      Ok(ast::Expr::Integer(value))
+    fn integer_expr(&mut self, integer: Token<'a>) -> err::Result<'a, cst::Integer<'a>> {
+      Ok(cst::Integer(integer))
     }
 
-    fn float_expr(&mut self, float: Token<'a>) -> err::Result<'a, ast::Expr<'a>> {
-      let value = float.lexeme.parse::<f64>().unwrap();
-      Ok(ast::Expr::Float(value))
+    fn float_expr(&mut self, float: Token<'a>) -> err::Result<'a, cst::Float<'a>> {
+      Ok(cst::Float(float))
     }
 
-    fn prefix_expr(&mut self) -> err::Result<'a, ast::Expr<'a>> {
+    fn prefix_expr(&mut self) -> err::Result<'a, cst::Expr<'a>> {
       if let Some(keyword) = self.next_if_lexeme("let")? {
-        self.let_expr(keyword)
+        self.let_expr(keyword).map(cst::Expr::Let)
       } else if let Some(keyword) = self.next_if_lexeme("print")? {
-        self.print_expr(keyword)
+        self.print_expr(keyword).map(cst::Expr::Unary)
       } else if let Some(word) = self.next_if_kind(Kind::Word)? {
-        self.name_expr(word)
+        self.name_expr(word).map(cst::Expr::Name)
       } else if let Some(integer) = self.next_if_kind(Kind::Integer)? {
-        self.integer_expr(integer)
+        self.integer_expr(integer).map(cst::Expr::Integer)
       } else if let Some(float) = self.next_if_kind(Kind::Float)? {
-        self.float_expr(float)
+        self.float_expr(float).map(cst::Expr::Float)
       } else if let Some(tok) = self.next()? {
         Err(self.err_wanted_expr_found_token(tok))
       } else {
@@ -496,20 +464,21 @@ mod parser {
 
     fn binary_expr(
       &mut self,
-      left: ast::Expr<'a>,
-      oper: Token<'a>,
-    ) -> err::Result<'a, ast::Expr<'a>> {
-      let right = self.expr(oper.to_infix_precedence())?;
-      Ok(ast::Expr::Binary(
-        Box::new(left),
-        oper.lexeme,
-        Box::new(right),
-      ))
+      left: cst::Expr<'a>,
+      operand: Token<'a>,
+    ) -> err::Result<'a, cst::Binary<'a>> {
+      let left = Box::new(left);
+      let right = Box::new(self.expr(operand.to_infix_precedence())?);
+      Ok(cst::Binary {
+        operand,
+        left,
+        right,
+      })
     }
 
-    fn postfix_expr(&mut self, left: ast::Expr<'a>) -> err::Result<'a, ast::Expr<'a>> {
+    fn postfix_expr(&mut self, left: cst::Expr<'a>) -> err::Result<'a, cst::Expr<'a>> {
       if let Some(oper) = self.next_if_kind(Kind::Symbol)? {
-        self.binary_expr(left, oper)
+        self.binary_expr(left, oper).map(cst::Expr::Binary)
       } else if let Some(tok) = self.next()? {
         Err(self.err_wanted_oper_found_token(tok))
       } else {
@@ -525,7 +494,7 @@ mod parser {
         .unwrap_or(LOWEST)
     }
 
-    pub fn expr(&mut self, threshold: Precedence) -> err::Result<'a, ast::Expr<'a>> {
+    pub fn expr(&mut self, threshold: Precedence) -> err::Result<'a, cst::Expr<'a>> {
       let mut prefix = self.prefix_expr()?;
       while threshold < self.peek_precedence() {
         prefix = self.postfix_expr(prefix)?;
@@ -544,9 +513,9 @@ mod parser {
   }
 }
 
-use super::ast;
 use super::err;
+use super::syntax::cst;
 
-pub fn parse<'a>(source: &'a err::Source) -> err::Result<ast::Expr<'a>> {
+pub fn parse<'a>(source: &'a err::Source) -> err::Result<cst::Expr<'a>> {
   parser::Parser::from(source).expr(parser::LOWEST)
 }

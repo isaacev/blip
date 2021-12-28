@@ -1,6 +1,5 @@
 enum Cmd<'a> {
   Ref(&'a str),
-  Owned(String),
   LineBreak,
   Inc,
   Dec,
@@ -18,16 +17,6 @@ impl<'a> Document<'a> {
 
   pub fn write(mut self, s: &'a str) -> Self {
     self.cmds.push(Cmd::Ref(s));
-    self
-  }
-
-  pub fn integer(mut self, value: u64) -> Self {
-    self.cmds.push(Cmd::Owned(format!("{}", value)));
-    self
-  }
-
-  pub fn float(mut self, value: f64) -> Self {
-    self.cmds.push(Cmd::Owned(format!("{}", value)));
     self
   }
 
@@ -76,10 +65,6 @@ impl<'a> Document<'a> {
     for cmd in self.cmds {
       match cmd {
         Cmd::Ref(str) => {
-          printer.write(str);
-          is_blank_line = Some(false);
-        }
-        Cmd::Owned(str) => {
           printer.write(str);
           is_blank_line = Some(false);
         }

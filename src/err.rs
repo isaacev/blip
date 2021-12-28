@@ -34,7 +34,7 @@ impl std::fmt::Display for Point {
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct Span {
   pub start: Point,
   pub end: Point,
@@ -48,6 +48,13 @@ impl Span {
   pub fn to_slice<'a>(&self, s: &'a str) -> &'a str {
     &s[self.start.offset..self.end.offset]
   }
+
+  pub fn unify<'a>(&self, other: &Self) -> Self {
+    Span {
+      start: self.start,
+      end: other.end,
+    }
+  }
 }
 
 impl From<Point> for Span {
@@ -57,6 +64,10 @@ impl From<Point> for Span {
       end: pt.next(' '),
     }
   }
+}
+
+pub trait AsSpan {
+  fn as_span(&self) -> Span;
 }
 
 pub struct Source {

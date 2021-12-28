@@ -1,7 +1,7 @@
-mod ast;
 mod err;
 mod parse;
 mod print;
+mod syntax;
 
 #[cfg(test)]
 mod tests;
