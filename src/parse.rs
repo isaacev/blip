@@ -52,7 +52,7 @@ mod chars {
     C: AsChar,
   {
     match ch.as_char() {
-      '=' | '+' | '-' | '*' | '>' | '<' => true,
+      '=' | '+' | '-' | '*' | '>' | '<' | '(' | ')' => true,
       _ => false,
     }
   }
@@ -412,6 +412,13 @@ mod parser {
       Ok(cst::Binding { name, expr })
     }
 
+    fn paren_expr(&mut self, left_paren: Token<'a>) -> err::Result<'a, cst::Paren<'a>> {
+      let expr = Box::new(self.expr(LOWEST)?);
+      let right_paren = self.next_token(Kind::Symbol, ")")?;
+      let span = left_paren.as_span().unify(&right_paren.as_span());
+      Ok(cst::Paren { span, expr })
+    }
+
     fn let_expr(&mut self, keyword: Token<'a>) -> err::Result<'a, cst::Let<'a>> {
       let mut bindings = vec![self.binding()?];
       while self.peek_if_not_lexeme("in") {
@@ -445,7 +452,9 @@ mod parser {
     }
 
     fn prefix_expr(&mut self) -> err::Result<'a, cst::Expr<'a>> {
-      if let Some(keyword) = self.next_if_lexeme("let")? {
+      if let Some(left) = self.next_if_lexeme("(")? {
+        self.paren_expr(left).map(cst::Expr::Paren)
+      } else if let Some(keyword) = self.next_if_lexeme("let")? {
         self.let_expr(keyword).map(cst::Expr::Let)
       } else if let Some(keyword) = self.next_if_lexeme("print")? {
         self.print_expr(keyword).map(cst::Expr::Unary)

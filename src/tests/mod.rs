@@ -14,6 +14,7 @@ fn binary_operator_precedence() {
   assert_ast!("1 + 2 + 3 + 4" => (+ (+ (+ 1 2) 3) 4));
   assert_ast!("1 + 2 * 3" => (+ 1 (* 2 3)));
   assert_ast!("1 * 2 + 3" => (+ (* 1 2) 3));
+  assert_ast!("1 * (2 + 3)" => (* 1 (+ 2 3)));
 }
 
 #[test]
