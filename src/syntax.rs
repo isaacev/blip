@@ -148,3 +148,99 @@ pub mod ast {
     }
   }
 }
+
+pub mod ir {
+  use super::super::ty;
+  use std::cell::Cell;
+  use std::fmt;
+
+  pub struct Names {
+    next_id: Cell<usize>,
+  }
+
+  impl Names {
+    pub fn new() -> Self {
+      Self {
+        next_id: Cell::new(0),
+      }
+    }
+
+    pub fn next<S: ToString>(&self, canonical: S, ty: ty::Type) -> Name {
+      let id = self.next_id.get();
+      self.next_id.set(id + 1);
+      Name {
+        id,
+        canonical: canonical.to_string(),
+        ty,
+      }
+    }
+  }
+
+  pub struct Name {
+    id: usize,
+    canonical: String,
+    ty: ty::Type,
+  }
+
+  impl fmt::Display for Name {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+      write!(f, "{}", self.canonical)
+    }
+  }
+
+  impl fmt::Debug for Name {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+      write!(f, "{} :: {}", self.canonical, self.ty)
+    }
+  }
+
+  impl PartialEq for Name {
+    fn eq(&self, other: &Self) -> bool {
+      self.id == other.id
+    }
+  }
+
+  impl Eq for Name {
+    // empty
+  }
+
+  #[derive(Debug)]
+  pub struct Let {
+    pub name: Name,
+    pub binding: Box<Expr>,
+    pub body: Box<Expr>,
+  }
+
+  #[derive(Debug)]
+  pub struct Binary {
+    pub operand: Name,
+    pub left: Box<Expr>,
+    pub right: Box<Expr>,
+  }
+
+  #[derive(Debug)]
+  pub struct Unary {
+    pub operand: Name,
+    pub right: Box<Expr>,
+  }
+
+  #[derive(Debug)]
+  pub struct Integer {
+    pub repr: String,
+  }
+
+  #[derive(Debug)]
+  pub struct Float {
+    pub repr: String,
+  }
+
+  #[derive(Debug)]
+  pub enum Expr {
+    Let(Let),
+    Binary(Binary),
+    Unary(Unary),
+    Name(Name),
+    Integer(Integer),
+    Float(Float),
+  }
+}

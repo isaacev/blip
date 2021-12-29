@@ -2,6 +2,7 @@ mod err;
 mod parse;
 mod print;
 mod syntax;
+mod ty;
 
 #[cfg(test)]
 mod tests;
@@ -34,6 +35,16 @@ fn main() {
   let mut printer = print::StdoutPrinter::new();
   match parse::parse(&source) {
     Err(err) => eprintln!("{:?}", err),
-    Ok(expr) => expr.to_doc().line_break().print(&mut printer),
+    Ok(expr) => {
+      expr.to_doc().line_break().print(&mut printer);
+
+      match ty::infer(&expr) {
+        Err(e) => eprintln!("ERROR: {}", e),
+        Ok((t, e)) => {
+          println!("{:?}", t);
+          println!("{:#?}", e);
+        }
+      }
+    }
   }
 }
