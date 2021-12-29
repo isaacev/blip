@@ -61,18 +61,14 @@ pub mod ast {
 
   pub struct Let<'a> {
     pub span: Span,
-    pub bindings: Vec<Binding<'a>>,
+    pub name: Name<'a>,
+    pub binding: Box<Expr<'a>>,
     pub body: Box<Expr<'a>>,
   }
 
   pub struct Paren<'a> {
     pub span: Span,
     pub expr: Box<Expr<'a>>,
-  }
-
-  pub struct Binding<'a> {
-    pub name: Name<'a>,
-    pub expr: Expr<'a>,
   }
 
   pub struct Unary<'a> {
@@ -110,29 +106,20 @@ pub mod ast {
     fn to_doc(&self) -> Document<'a> {
       match self {
         Expr::Let(let_) => Document::new()
-          .line_break()
-          .indent()
           .write("(let")
+          .line_break()
           .inc()
-          .for_each(let_.bindings.iter(), |b| {
-            Document::new()
-              .line_break()
-              .indent()
-              .write("(define ")
-              .then(b.name.to_doc())
-              .space()
-              .inc()
-              .then(b.expr.to_doc())
-              .dec()
-              .write(")")
-          })
+          .indent()
+          .write("(define ")
+          .then(let_.name.to_doc())
+          .space()
+          .then(let_.binding.to_doc())
+          .write(")")
           .line_break()
           .indent()
-          .inc()
           .then(let_.body.to_doc())
           .dec()
-          .write(")")
-          .dec(),
+          .write(")"),
         Expr::Paren(paren) => paren.expr.to_doc(),
         Expr::Unary(unary) => Document::new()
           .write("(")

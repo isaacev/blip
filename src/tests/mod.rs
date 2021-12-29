@@ -34,13 +34,16 @@ fn let_binding() {
   assert_ast!("
       let
         a = 123
-        b = 456
       in
-        a * b
+        let
+          b = 456
+        in
+          a * b
       " =>
     (let
       (define a 123)
-      (define b 456)
-      (* a b))
+      (let
+        (define b 456)
+        (* a b)))
   );
 }

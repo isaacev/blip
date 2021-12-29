@@ -44,15 +44,6 @@ impl<'a> Document<'a> {
     self
   }
 
-  pub fn for_each<T, I: Iterator<Item = T>, F: Fn(T) -> Document<'a>>(
-    mut self,
-    iter: I,
-    f: F,
-  ) -> Self {
-    iter.for_each(|t| self.cmds.append(&mut f(t).cmds));
-    self
-  }
-
   pub fn then(mut self, mut b: Document<'a>) -> Self {
     self.cmds.append(&mut b.cmds);
     self

@@ -393,23 +393,9 @@ mod parser {
       }
     }
 
-    fn peek_if_not_lexeme(&mut self, keyword: &str) -> bool {
-      match self.lexer.peek() {
-        Some(tok) if tok.lexeme != keyword => true,
-        _ => false,
-      }
-    }
-
     fn name(&mut self) -> err::Result<'a, ast::Name<'a>> {
       let name = self.next_kind(Kind::Word)?;
       Ok(ast::Name(name))
-    }
-
-    fn binding(&mut self) -> err::Result<'a, ast::Binding<'a>> {
-      let name = self.name()?;
-      self.next_token(Kind::Symbol, "=")?;
-      let expr = self.expr(LOWEST)?;
-      Ok(ast::Binding { name, expr })
     }
 
     fn paren_expr(&mut self, left_paren: Token<'a>) -> err::Result<'a, ast::Paren<'a>> {
@@ -420,16 +406,16 @@ mod parser {
     }
 
     fn let_expr(&mut self, keyword: Token<'a>) -> err::Result<'a, ast::Let<'a>> {
-      let mut bindings = vec![self.binding()?];
-      while self.peek_if_not_lexeme("in") {
-        bindings.push(self.binding()?);
-      }
+      let name = self.name()?;
+      self.next_token(Kind::Symbol, "=")?;
+      let binding = Box::new(self.expr(LOWEST)?);
       self.next_token(Kind::Word, "in")?;
       let body = self.expr(LOWEST)?;
       let span = keyword.as_span().unify(&body.as_span());
       Ok(ast::Let {
         span,
-        bindings,
+        name,
+        binding,
         body: Box::new(body),
       })
     }

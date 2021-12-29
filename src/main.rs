@@ -12,11 +12,17 @@ const FILENAME: &'static str = "<example>";
 const CONTENTS: &'static str = "
 let
   x = 1 + 2 * 3
-  y = x * 100
-  z = 1 * 2 + 3
-  a = let b = 3000 in b
 in
-  x + y * a + z
+  let
+    y = x * 100
+  in
+    let
+      z = 1 * 2 + 3
+    in
+      let
+        a = let b = 3000 in b
+      in
+        x + y * a + z
 ";
 
 fn main() {
