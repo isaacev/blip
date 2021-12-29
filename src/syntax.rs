@@ -44,7 +44,7 @@ pub mod token {
   }
 }
 
-pub mod cst {
+pub mod ast {
   use super::super::err::{AsSpan, Span};
   use super::super::print::{Document, Printable};
   use super::token::Token;
