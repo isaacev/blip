@@ -1,3 +1,4 @@
+use super::print::Printable;
 use super::*;
 
 fn is_whitespace(c: &char) -> bool {

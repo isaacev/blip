@@ -1,13 +1,16 @@
+mod codegen;
 mod err;
 mod parse;
 mod print;
 mod syntax;
 mod ty;
+mod wasm;
 
 #[cfg(test)]
 mod tests;
 
-use print::Printable;
+use std::fs::File;
+use std::io;
 
 const FILENAME: &'static str = "<example>";
 const CONTENTS: &'static str = "
@@ -26,25 +29,28 @@ in
         x + y * a + z
 ";
 
+fn write_module(m: &wasm::Module) -> std::io::Result<()> {
+  use io::Write;
+  use wasm::Encode;
+
+  let mut w = io::BufWriter::new(File::create("test.wasm")?);
+  w.write_all(&m.encode())
+}
+
 fn main() {
   let source = err::Source {
     name: FILENAME.to_owned(),
     contents: CONTENTS.to_owned(),
   };
 
-  let mut printer = print::StdoutPrinter::new();
   match parse::parse(&source) {
     Err(err) => eprintln!("{:?}", err),
-    Ok(expr) => {
-      expr.to_doc().line_break().print(&mut printer);
-
-      match ty::infer(&expr) {
-        Err(e) => eprintln!("ERROR: {}", e),
-        Ok((t, e)) => {
-          println!("{:?}", t);
-          println!("{:#?}", e);
-        }
-      }
-    }
+    Ok(expr) => match ty::infer(&expr) {
+      Err(e) => eprintln!("ERROR: {}", e),
+      Ok((_, e)) => match write_module(&codegen::compile(&e)) {
+        Err(e) => eprintln!("WRITE ERROR: {}", e),
+        Ok(_) => println!("wrote to file"),
+      },
+    },
   }
 }

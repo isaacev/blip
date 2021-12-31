@@ -178,8 +178,8 @@ pub mod ir {
 
   pub struct Name {
     id: usize,
-    canonical: String,
-    ty: ty::Type,
+    pub canonical: String,
+    pub ty: ty::Type,
   }
 
   impl fmt::Display for Name {

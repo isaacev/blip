@@ -49,6 +49,7 @@ impl<'a> Document<'a> {
     self
   }
 
+  #[allow(dead_code)]
   pub fn print<P: Printer>(self, printer: &mut P) {
     let mut indent = 0;
     let mut is_blank_line: Option<bool> = None;
@@ -93,6 +94,7 @@ pub trait Printer {
 pub struct StdoutPrinter {}
 
 impl StdoutPrinter {
+  #[allow(dead_code)]
   pub fn new() -> Self {
     StdoutPrinter {}
   }
