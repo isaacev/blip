@@ -449,37 +449,43 @@ impl Env {
   }
 }
 
-fn inject_stdlib(env: &mut Env) {
-  let i = Type::Const("int".to_owned());
-
-  env.insert(
-    "+".into(),
-    Polytype {
-      vars: Vec::new(),
-      ty: Type::Fun(
-        Box::new(i.clone()),
-        Box::new(Type::Fun(Box::new(i.clone()), Box::new(i.clone()))),
-      ),
-    },
+fn binop(env: &mut Env, oper: &str, left: Type, right: Type, ret: Type) {
+  let ty = Type::Fun(
+    Box::new(left),
+    Box::new(Type::Fun(Box::new(right), Box::new(ret))),
   );
+  let vars = ty.find_free_type_vars().into_iter().collect();
+  let poly = Polytype { vars, ty };
+  env.insert(oper.to_owned(), poly);
+}
 
-  env.insert(
-    "*".into(),
-    Polytype {
-      vars: Vec::new(),
-      ty: Type::Fun(
-        Box::new(i.clone()),
-        Box::new(Type::Fun(Box::new(i.clone()), Box::new(i.clone()))),
-      ),
-    },
-  );
+fn unop(env: &mut Env, oper: &str, right: Type, ret: Type) {
+  let ty = Type::Fun(Box::new(right), Box::new(ret));
+  let vars = ty.find_free_type_vars().into_iter().collect();
+  let poly = Polytype { vars, ty };
+  env.insert(oper.to_owned(), poly);
 }
 
 pub fn infer(expr: &ast::Expr) -> TypeResult<(Type, ir::Expr)> {
   let mut env = Env::new();
-  inject_stdlib(&mut env);
   let vars = Vars::new();
   let names = ir::Names::new();
+
+  let t_int = Type::Const("int".to_owned());
+  let t_bool = Type::Const("bool".to_owned());
+  let a = Type::Var(vars.next());
+
+  binop(&mut env, "+", t_int.clone(), t_int.clone(), t_int.clone());
+  binop(&mut env, "-", t_int.clone(), t_int.clone(), t_int.clone());
+  binop(&mut env, "*", t_int.clone(), t_int.clone(), t_int.clone());
+
+  binop(&mut env, "<", a.clone(), a.clone(), t_bool.clone());
+  binop(&mut env, ">", a.clone(), a.clone(), t_bool.clone());
+  binop(&mut env, "<=", a.clone(), a.clone(), t_bool.clone());
+  binop(&mut env, ">=", a.clone(), a.clone(), t_bool.clone());
+
+  unop(&mut env, "print", a.clone(), a.clone());
+
   let (s, t, e) = env.infer(expr, &vars, &names)?;
   Ok((t.apply(&s), e))
 }
