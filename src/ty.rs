@@ -269,23 +269,23 @@ impl Polytype {
 }
 
 #[derive(Debug, Clone)]
-struct Env<'a>(HashMap<&'a str, Polytype>);
+struct Env(HashMap<String, Polytype>);
 
-impl<'a> Deref for Env<'a> {
-  type Target = HashMap<&'a str, Polytype>;
+impl Deref for Env {
+  type Target = HashMap<String, Polytype>;
 
   fn deref(&self) -> &Self::Target {
     &self.0
   }
 }
 
-impl<'a> DerefMut for Env<'a> {
+impl DerefMut for Env {
   fn deref_mut(&mut self) -> &mut Self::Target {
     &mut self.0
   }
 }
 
-impl<'a> Types for Env<'a> {
+impl Types for Env {
   fn find_free_type_vars(&self) -> HashSet<Var> {
     self
       .values()
@@ -294,12 +294,12 @@ impl<'a> Types for Env<'a> {
       .find_free_type_vars()
   }
 
-  fn apply(&self, s: &Substitutions) -> Env<'a> {
+  fn apply(&self, s: &Substitutions) -> Env {
     Env(self.iter().map(|(k, v)| (k.clone(), v.apply(s))).collect())
   }
 }
 
-impl<'a> Env<'a> {
+impl Env {
   fn new() -> Self {
     Env(HashMap::new())
   }
@@ -332,7 +332,7 @@ impl<'a> Env<'a> {
         let name = names.next(lexeme, binding_type.clone());
 
         let binding_polytype = env.apply(&binding_substitutions).generalize(&binding_type);
-        env.insert(lexeme, binding_polytype);
+        env.insert(lexeme.to_owned(), binding_polytype);
         let (body_substitutions, let_type, body) = env
           .apply(&binding_substitutions)
           .infer(&e.body, vars, names)?;
