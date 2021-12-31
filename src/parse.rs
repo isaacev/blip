@@ -11,7 +11,7 @@ mod chars {
     }
   }
 
-  impl AsChar for (Point, char) {
+  impl<'src> AsChar for (Point<'src>, char) {
     fn as_char(&self) -> char {
       self.1
     }
@@ -89,22 +89,22 @@ mod lexer {
   use std::iter::Peekable;
   use std::str::Chars;
 
-  struct Scanner<'a> {
-    chars: Chars<'a>,
-    next_point: Point,
+  struct Scanner<'src> {
+    chars: Chars<'src>,
+    next_point: Point<'src>,
   }
 
   impl Scanner<'_> {
-    pub fn new<'a>(src: &'a Source) -> Scanner<'a> {
+    pub fn new<'src>(src: &'src Source) -> Scanner<'src> {
       Scanner {
         chars: src.contents.chars(),
-        next_point: Point::new(),
+        next_point: Point::new(src),
       }
     }
   }
 
-  impl<'a> Iterator for Scanner<'a> {
-    type Item = (Point, char);
+  impl<'src> Iterator for Scanner<'src> {
+    type Item = (Point<'src>, char);
 
     fn next(&mut self) -> Option<Self::Item> {
       if let Some(ch) = self.chars.next() {
@@ -119,14 +119,14 @@ mod lexer {
 
   type CharGuard<C> = fn(&C) -> bool;
 
-  struct Accumulator {
+  struct Accumulator<'src> {
     kind: Kind,
-    start: Point,
-    end: Point,
+    start: Point<'src>,
+    end: Point<'src>,
   }
 
-  impl Accumulator {
-    fn new(kind: Kind, pt: Point, ch: char) -> Self {
+  impl<'src> Accumulator<'src> {
+    fn new(kind: Kind, pt: Point<'src>, ch: char) -> Self {
       Accumulator {
         kind,
         start: pt,
@@ -135,16 +135,16 @@ mod lexer {
     }
   }
 
-  pub struct Lexer<'a> {
-    source: &'a Source,
-    scanner: Peekable<Scanner<'a>>,
-    acc: Option<Accumulator>,
-    lookahead: Option<Option<Token<'a>>>,
-    pub last_read_point: Point,
+  pub struct Lexer<'src> {
+    source: &'src Source,
+    scanner: Peekable<Scanner<'src>>,
+    acc: Option<Accumulator<'src>>,
+    lookahead: Option<Option<Token<'src>>>,
+    pub last_read_point: Point<'src>,
   }
 
-  impl<'a> Lexer<'a> {
-    pub fn new(source: &'a Source) -> Self {
+  impl<'src> Lexer<'src> {
+    pub fn new(source: &'src Source) -> Self {
       let scanner = Scanner::new(source);
       let last_read_point = scanner.next_point;
       Lexer {
@@ -156,11 +156,11 @@ mod lexer {
       }
     }
 
-    fn skip_while(&mut self, guard: CharGuard<(Point, char)>) {
+    fn skip_while(&mut self, guard: CharGuard<(Point<'src>, char)>) {
       while let Some(_) = self.scanner.next_if(guard) {}
     }
 
-    fn push_if(&mut self, kind: Kind, guard: CharGuard<(Point, char)>) -> bool {
+    fn push_if(&mut self, kind: Kind, guard: CharGuard<(Point<'src>, char)>) -> bool {
       if let Some((pt, ch)) = self.scanner.next_if(guard) {
         self.acc = Some(Accumulator::new(kind, pt, ch));
         true
@@ -169,7 +169,7 @@ mod lexer {
       }
     }
 
-    fn pop(&mut self) -> Token<'a> {
+    fn pop(&mut self) -> Token<'src> {
       let acc = self.acc.take().unwrap();
       let span = Span::new(acc.start, acc.end);
       let lexeme = span.to_slice(&self.source.contents);
@@ -181,7 +181,7 @@ mod lexer {
       self.acc.as_mut().unwrap().kind = kind;
     }
 
-    fn next_if(&mut self, guard: CharGuard<(Point, char)>) -> bool {
+    fn next_if(&mut self, guard: CharGuard<(Point<'src>, char)>) -> bool {
       if let Some(ref mut acc) = self.acc {
         if let Some((pt, ch)) = self.scanner.next_if(guard) {
           acc.end = pt.next(ch);
@@ -192,11 +192,11 @@ mod lexer {
       false
     }
 
-    fn next_all_if(&mut self, guard: CharGuard<(Point, char)>) {
+    fn next_all_if(&mut self, guard: CharGuard<(Point<'src>, char)>) {
       while self.next_if(guard) {}
     }
 
-    fn read(&mut self) -> Option<Token<'a>> {
+    fn read(&mut self) -> Option<Token<'src>> {
       self.skip_while(chars::is_whitespace);
 
       if self.push_if(Kind::Symbol, chars::is_symbol) {
@@ -221,7 +221,7 @@ mod lexer {
       }
     }
 
-    pub fn peek(&mut self) -> Option<&Token<'a>> {
+    pub fn peek(&mut self) -> Option<&Token<'src>> {
       if self.lookahead.is_none() {
         self.lookahead = Some(self.read());
       }
@@ -230,8 +230,8 @@ mod lexer {
     }
   }
 
-  impl<'a> Iterator for Lexer<'a> {
-    type Item = Token<'a>;
+  impl<'src> Iterator for Lexer<'src> {
+    type Item = Token<'src>;
 
     fn next(&mut self) -> Option<Self::Item> {
       let next = match self.lookahead {
@@ -250,7 +250,7 @@ mod lexer {
 
 mod parser {
   use super::super::err;
-  use super::super::err::{AsSpan, Source, Span};
+  use super::super::err::{Source, Span};
   use super::super::syntax::ast;
   use super::super::syntax::token::{Kind, Token};
   use super::lexer::Lexer;
@@ -293,69 +293,61 @@ mod parser {
     }
   }
 
-  pub struct Parser<'a> {
-    source: &'a Source,
-    lexer: Lexer<'a>,
+  pub struct Parser<'src> {
+    lexer: Lexer<'src>,
   }
 
-  impl<'a> Parser<'a> {
-    fn err_wanted_expr_found_token(&self, found: Token) -> err::Error<'a> {
+  impl<'src> Parser<'src> {
+    fn err_wanted_expr_found_token(&self, found: Token<'src>) -> err::Error<'src> {
       err::Error {
-        source: self.source,
         span: found.span,
         message: format!("expected an expression, found {}", found.kind),
       }
     }
 
-    fn err_wanted_expr_found_eof(&self) -> err::Error<'a> {
+    fn err_wanted_expr_found_eof(&self) -> err::Error<'src> {
       err::Error {
-        source: self.source,
         span: Span::from(self.lexer.last_read_point),
         message: "expected an expression, found end-of-file".to_owned(),
       }
     }
 
-    fn err_wanted_token_found_token(&self, expected: Kind, found: Token) -> err::Error<'a> {
+    fn err_wanted_token_found_token(&self, expected: Kind, found: Token<'src>) -> err::Error<'src> {
       err::Error {
-        source: self.source,
         span: found.span,
         message: format!("expected {}, found {}", expected, found.kind),
       }
     }
 
-    fn err_wanted_token_found_eof(&self, expected: Kind) -> err::Error<'a> {
+    fn err_wanted_token_found_eof(&self, expected: Kind) -> err::Error<'src> {
       err::Error {
-        source: self.source,
         span: Span::from(self.lexer.last_read_point),
         message: format!("expected {}, found end-of-file", expected),
       }
     }
 
-    fn err_wanted_oper_found_token(&self, found: Token) -> err::Error<'a> {
+    fn err_wanted_oper_found_token(&self, found: Token<'src>) -> err::Error<'src> {
       err::Error {
-        source: self.source,
         span: found.span,
         message: format!("expected an operator, found {}", found.kind),
       }
     }
 
-    fn err_wanted_oper_found_eof(&self) -> err::Error<'a> {
+    fn err_wanted_oper_found_eof(&self) -> err::Error<'src> {
       err::Error {
-        source: self.source,
         span: Span::from(self.lexer.last_read_point),
         message: "expected an operator, found end-of-file".to_owned(),
       }
     }
 
-    fn err_unexpected_char(&self, token: Token<'a>) -> err::Error<'a> {
+    fn err_unexpected_char(&self, token: Token<'src>) -> err::Error<'src> {
       err::Error {
-        source: self.source,
         span: token.span,
         message: format!("unexpected character: '{}'", token.lexeme),
       }
     }
 
-    fn next(&mut self) -> err::Result<'a, Option<Token<'a>>> {
+    fn next(&mut self) -> err::Result<'src, Option<Token<'src>>> {
       match self.lexer.next() {
         Some(tok) if tok.kind == Kind::Error => Err(self.err_unexpected_char(tok)),
         Some(tok) => Ok(Some(tok)),
@@ -363,7 +355,7 @@ mod parser {
       }
     }
 
-    fn next_kind(&mut self, expect: Kind) -> err::Result<'a, Token<'a>> {
+    fn next_kind(&mut self, expect: Kind) -> err::Result<'src, Token<'src>> {
       match self.next()? {
         Some(tok) if tok.kind == expect => Ok(tok),
         Some(tok) => Err(self.err_wanted_token_found_token(expect, tok)),
@@ -371,7 +363,7 @@ mod parser {
       }
     }
 
-    fn next_token(&mut self, kind: Kind, lexeme: &str) -> err::Result<'a, Token<'a>> {
+    fn next_token(&mut self, kind: Kind, lexeme: &str) -> err::Result<'src, Token<'src>> {
       match self.next()? {
         Some(tok) if tok.kind == kind && tok.lexeme == lexeme => Ok(tok),
         Some(tok) => Err(self.err_wanted_token_found_token(kind, tok)),
@@ -379,65 +371,68 @@ mod parser {
       }
     }
 
-    fn next_if_kind(&mut self, kind: Kind) -> err::Result<'a, Option<Token<'a>>> {
+    fn next_if_kind(&mut self, kind: Kind) -> err::Result<'src, Option<Token<'src>>> {
       match self.lexer.peek() {
         Some(tok) if tok.kind == kind => Ok(Some((self.next()?).unwrap())),
         _ => Ok(None),
       }
     }
 
-    fn next_if_lexeme(&mut self, keyword: &str) -> err::Result<'a, Option<Token<'a>>> {
+    fn next_if_lexeme(&mut self, keyword: &str) -> err::Result<'src, Option<Token<'src>>> {
       match self.lexer.peek() {
         Some(tok) if tok.lexeme == keyword => Ok(Some(self.next()?.unwrap())),
         _ => Ok(None),
       }
     }
 
-    fn name(&mut self) -> err::Result<'a, ast::Name<'a>> {
+    fn name(&mut self) -> err::Result<'src, ast::Name<'src>> {
       let name = self.next_kind(Kind::Word)?;
       Ok(ast::Name(name))
     }
 
-    fn paren_expr(&mut self, left_paren: Token<'a>) -> err::Result<'a, ast::Paren<'a>> {
+    fn paren_expr(&mut self, left_paren: Token<'src>) -> err::Result<'src, ast::Paren<'src>> {
       let expr = Box::new(self.expr(LOWEST)?);
       let right_paren = self.next_token(Kind::Symbol, ")")?;
-      let span = left_paren.as_span().unify(&right_paren.as_span());
-      Ok(ast::Paren { span, expr })
+      Ok(ast::Paren {
+        span: Span::new(left_paren.span.start, right_paren.span.end),
+        expr,
+      })
     }
 
-    fn let_expr(&mut self, keyword: Token<'a>) -> err::Result<'a, ast::Let<'a>> {
+    fn let_expr(&mut self, keyword: Token<'src>) -> err::Result<'src, ast::Let<'src>> {
       let name = self.name()?;
       self.next_token(Kind::Symbol, "=")?;
       let binding = Box::new(self.expr(LOWEST)?);
       self.next_token(Kind::Word, "in")?;
       let body = self.expr(LOWEST)?;
-      let span = keyword.as_span().unify(&body.as_span());
+      let span = Span::new(keyword.span.start, body.end());
+      let boxed = Box::new(body);
       Ok(ast::Let {
         span,
         name,
         binding,
-        body: Box::new(body),
+        body: boxed,
       })
     }
 
-    fn print_expr(&mut self, operand: Token<'a>) -> err::Result<'a, ast::Unary<'a>> {
+    fn print_expr(&mut self, operand: Token<'src>) -> err::Result<'src, ast::Unary<'src>> {
       let right = Box::new(self.expr(UNARY)?);
       Ok(ast::Unary { operand, right })
     }
 
-    fn name_expr(&mut self, word: Token<'a>) -> err::Result<'a, ast::Name<'a>> {
+    fn name_expr(&mut self, word: Token<'src>) -> err::Result<'src, ast::Name<'src>> {
       Ok(ast::Name(word))
     }
 
-    fn integer_expr(&mut self, integer: Token<'a>) -> err::Result<'a, ast::Integer<'a>> {
+    fn integer_expr(&mut self, integer: Token<'src>) -> err::Result<'src, ast::Integer<'src>> {
       Ok(ast::Integer(integer))
     }
 
-    fn float_expr(&mut self, float: Token<'a>) -> err::Result<'a, ast::Float<'a>> {
+    fn float_expr(&mut self, float: Token<'src>) -> err::Result<'src, ast::Float<'src>> {
       Ok(ast::Float(float))
     }
 
-    fn prefix_expr(&mut self) -> err::Result<'a, ast::Expr<'a>> {
+    fn prefix_expr(&mut self) -> err::Result<'src, ast::Expr<'src>> {
       if let Some(left) = self.next_if_lexeme("(")? {
         self.paren_expr(left).map(ast::Expr::Paren)
       } else if let Some(keyword) = self.next_if_lexeme("let")? {
@@ -459,9 +454,9 @@ mod parser {
 
     fn binary_expr(
       &mut self,
-      left: ast::Expr<'a>,
-      operand: Token<'a>,
-    ) -> err::Result<'a, ast::Binary<'a>> {
+      left: ast::Expr<'src>,
+      operand: Token<'src>,
+    ) -> err::Result<'src, ast::Binary<'src>> {
       let left = Box::new(left);
       let right = Box::new(self.expr(operand.to_infix_precedence())?);
       Ok(ast::Binary {
@@ -471,7 +466,7 @@ mod parser {
       })
     }
 
-    fn postfix_expr(&mut self, left: ast::Expr<'a>) -> err::Result<'a, ast::Expr<'a>> {
+    fn postfix_expr(&mut self, left: ast::Expr<'src>) -> err::Result<'src, ast::Expr<'src>> {
       if let Some(oper) = self.next_if_kind(Kind::Symbol)? {
         self.binary_expr(left, oper).map(ast::Expr::Binary)
       } else if let Some(tok) = self.next()? {
@@ -489,7 +484,7 @@ mod parser {
         .unwrap_or(LOWEST)
     }
 
-    pub fn expr(&mut self, threshold: Precedence) -> err::Result<'a, ast::Expr<'a>> {
+    pub fn expr(&mut self, threshold: Precedence) -> err::Result<'src, ast::Expr<'src>> {
       let mut prefix = self.prefix_expr()?;
       while threshold < self.peek_precedence() {
         prefix = self.postfix_expr(prefix)?;
@@ -498,10 +493,9 @@ mod parser {
     }
   }
 
-  impl<'a> From<&'a Source> for Parser<'a> {
-    fn from(source: &'a Source) -> Parser<'a> {
+  impl<'src> From<&'src Source> for Parser<'src> {
+    fn from(source: &'src Source) -> Parser<'src> {
       Parser {
-        source,
         lexer: Lexer::new(source),
       }
     }
@@ -511,6 +505,6 @@ mod parser {
 use super::err;
 use super::syntax::ast;
 
-pub fn parse<'a>(source: &'a err::Source) -> err::Result<ast::Expr<'a>> {
+pub fn parse<'src>(source: &'src err::Source) -> err::Result<ast::Expr<'src>> {
   parser::Parser::from(source).expr(parser::LOWEST)
 }

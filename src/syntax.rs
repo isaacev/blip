@@ -24,20 +24,19 @@ pub mod token {
     }
   }
 
-  #[derive(Debug)]
-  pub struct Token<'a> {
+  pub struct Token<'src> {
     pub kind: Kind,
-    pub span: Span,
-    pub lexeme: &'a str,
+    pub span: Span<'src>,
+    pub lexeme: &'src str,
   }
 
-  impl<'a> Token<'a> {
-    pub fn new(kind: Kind, span: Span, lexeme: &'a str) -> Token<'a> {
+  impl<'src> Token<'src> {
+    pub fn new(kind: Kind, span: Span<'src>, lexeme: &'src str) -> Token<'src> {
       Token { kind, span, lexeme }
     }
   }
 
-  impl<'a> AsSpan for Token<'a> {
+  impl<'src> AsSpan for Token<'src> {
     fn as_span(&self) -> Span {
       self.span
     }
@@ -45,65 +44,77 @@ pub mod token {
 }
 
 pub mod ast {
-  use super::super::err::{AsSpan, Span};
+  use super::super::err::{Point, Span};
   use super::super::print::{Document, Printable};
   use super::token::Token;
 
-  pub enum Expr<'a> {
-    Let(Let<'a>),
-    Paren(Paren<'a>),
-    Unary(Unary<'a>),
-    Binary(Binary<'a>),
-    Name(Name<'a>),
-    Integer(Integer<'a>),
-    Float(Float<'a>),
+  pub enum Expr<'src> {
+    Let(Let<'src>),
+    Paren(Paren<'src>),
+    Unary(Unary<'src>),
+    Binary(Binary<'src>),
+    Name(Name<'src>),
+    Integer(Integer<'src>),
+    Float(Float<'src>),
   }
 
-  pub struct Let<'a> {
-    pub span: Span,
-    pub name: Name<'a>,
-    pub binding: Box<Expr<'a>>,
-    pub body: Box<Expr<'a>>,
-  }
-
-  pub struct Paren<'a> {
-    pub span: Span,
-    pub expr: Box<Expr<'a>>,
-  }
-
-  pub struct Unary<'a> {
-    pub operand: Token<'a>,
-    pub right: Box<Expr<'a>>,
-  }
-
-  pub struct Binary<'a> {
-    pub operand: Token<'a>,
-    pub left: Box<Expr<'a>>,
-    pub right: Box<Expr<'a>>,
-  }
-
-  pub struct Name<'a>(pub Token<'a>);
-
-  pub struct Integer<'a>(pub Token<'a>);
-
-  pub struct Float<'a>(pub Token<'a>);
-
-  impl<'a> AsSpan for Expr<'a> {
-    fn as_span(&self) -> Span {
+  impl<'src> Expr<'src> {
+    pub fn start(&self) -> Point<'src> {
       match self {
-        Expr::Let(e) => e.span,
-        Expr::Paren(e) => e.span,
-        Expr::Unary(e) => e.operand.as_span().unify(&e.right.as_span()),
-        Expr::Binary(e) => e.left.as_span().unify(&e.right.as_span()),
-        Expr::Name(e) => e.0.as_span(),
-        Expr::Integer(e) => e.0.as_span(),
-        Expr::Float(e) => e.0.as_span(),
+        Expr::Let(e) => e.span.start,
+        Expr::Paren(e) => e.span.start,
+        Expr::Unary(e) => e.operand.span.start,
+        Expr::Binary(e) => e.left.start(),
+        Expr::Name(e) => e.0.span.start,
+        Expr::Integer(e) => e.0.span.start,
+        Expr::Float(e) => e.0.span.start,
+      }
+    }
+
+    pub fn end(&self) -> Point<'src> {
+      match self {
+        Expr::Let(e) => e.span.end,
+        Expr::Paren(e) => e.span.end,
+        Expr::Unary(e) => e.right.end(),
+        Expr::Binary(e) => e.right.end(),
+        Expr::Name(e) => e.0.span.end,
+        Expr::Integer(e) => e.0.span.end,
+        Expr::Float(e) => e.0.span.end,
       }
     }
   }
 
-  impl<'a> Printable<'a> for Expr<'a> {
-    fn to_doc(&self) -> Document<'a> {
+  pub struct Let<'src> {
+    pub span: Span<'src>,
+    pub name: Name<'src>,
+    pub binding: Box<Expr<'src>>,
+    pub body: Box<Expr<'src>>,
+  }
+
+  pub struct Paren<'src> {
+    pub span: Span<'src>,
+    pub expr: Box<Expr<'src>>,
+  }
+
+  pub struct Unary<'src> {
+    pub operand: Token<'src>,
+    pub right: Box<Expr<'src>>,
+  }
+
+  pub struct Binary<'src> {
+    pub operand: Token<'src>,
+    pub left: Box<Expr<'src>>,
+    pub right: Box<Expr<'src>>,
+  }
+
+  pub struct Name<'src>(pub Token<'src>);
+
+  pub struct Integer<'src>(pub Token<'src>);
+
+  pub struct Float<'src>(pub Token<'src>);
+
+  impl<'src> Printable<'src> for Expr<'src> {
+    fn to_doc(&self) -> Document<'src> {
       match self {
         Expr::Let(let_) => Document::new()
           .write("(let")
@@ -142,8 +153,8 @@ pub mod ast {
     }
   }
 
-  impl<'a> Printable<'a> for Name<'a> {
-    fn to_doc(&self) -> Document<'a> {
+  impl<'src> Printable<'src> for Name<'src> {
+    fn to_doc(&self) -> Document<'src> {
       Document::new().write(self.0.lexeme)
     }
   }
