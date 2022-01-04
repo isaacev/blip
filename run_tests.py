@@ -255,7 +255,7 @@ def diff(expected, found):
 def run_test(test):
     src_path = test.paths[".blip"]
     output = run(
-        ["./target/debug/blip", src_path],
+        ["./target/debug/client", src_path],
         text=True,
         capture_output=True,
     )
@@ -281,7 +281,7 @@ def run_test(test):
 
 
 def main():
-    run(["cargo", "build"], text=True, capture_output=True, check=True)
+    run(["cargo", "build", "--bin", "client"], text=True, capture_output=True, check=True)
 
     prefix = argv[1] if len(argv) > 1 else ""
     all_tests = find_tests()
