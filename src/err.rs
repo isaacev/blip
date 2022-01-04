@@ -1,5 +1,8 @@
-#[derive(Clone, Copy)]
+use serde::Serialize;
+
+#[derive(Clone, Copy, Serialize)]
 pub struct Point<'src> {
+  #[serde(skip_serializing)]
   pub source: &'src Source<'src>,
   offset: usize,
   pub line: usize,
@@ -31,7 +34,7 @@ impl<'src> Point<'src> {
   }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Serialize)]
 pub struct Span<'src> {
   pub start: Point<'src>,
   pub end: Point<'src>,
@@ -60,6 +63,7 @@ pub trait AsSpan {
   fn as_span(&self) -> Span;
 }
 
+#[derive(Serialize)]
 pub struct Source<'src> {
   pub filename: &'src str,
   pub contents: &'src str,
