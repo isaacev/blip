@@ -1,4 +1,4 @@
-use blip_lang;
+
 use blip_lang::doc::ToDoc;
 use wasm_bindgen::prelude::*;
 

@@ -88,7 +88,7 @@ impl Env {
     Self { env }
   }
 
-  fn lookup(&self, name: &Name) -> Option<&Ty> {
+  fn lookup(&self, name: &str) -> Option<&Ty> {
     self.env.get(name)
   }
 }
@@ -272,7 +272,7 @@ fn lower_expr<'src>(
       }))
     }
     ast::Expr::Binary(e) => {
-      if let Some(operand_ty) = env.lookup(&e.operand.lexeme.into()) {
+      if let Some(operand_ty) = env.lookup(e.operand.lexeme) {
         match match_fun_ty(2, ids, operand_ty) {
           Err(FuncError::NotCallable) => Err(
             diag::ErrorBuilder::from(e.operand.span)
@@ -313,7 +313,7 @@ fn lower_expr<'src>(
       }
     }
     ast::Expr::Unary(e) => {
-      if let Some(operand_ty) = env.lookup(&e.operand.lexeme.into()) {
+      if let Some(operand_ty) = env.lookup(e.operand.lexeme) {
         match match_fun_ty(1, ids, operand_ty) {
           Err(FuncError::NotCallable) => Err(
             diag::ErrorBuilder::from(e.operand.span)
@@ -350,7 +350,7 @@ fn lower_expr<'src>(
       }
     }
     ast::Expr::Name(e) => {
-      if let Some(ty) = env.lookup(&e.0.lexeme.into()) {
+      if let Some(ty) = env.lookup(e.0.lexeme) {
         let mut id_var_map = HashMap::new();
         let ty = instantiate(ids, &mut id_var_map, ty, level);
         let canonical = e.0.lexeme.to_owned();
@@ -374,7 +374,7 @@ fn lower_expr<'src>(
   }
 }
 
-pub fn lower<'src>(tree: &ast::Expr<'src>) -> Result<ir::Expr, diag::Error> {
+pub fn lower(tree: &ast::Expr) -> Result<ir::Expr, diag::Error> {
   let mut ids = Ids::new();
   let mut env = Env::new();
   let level = Level::zero();

@@ -21,50 +21,35 @@ mod chars {
   where
     C: AsChar,
   {
-    match ch.as_char() {
-      ' ' | '\t' | '\n' => true,
-      _ => false,
-    }
+    matches!(ch.as_char(), ' ' | '\t' | '\n')
   }
 
   pub fn is_start_of_word<C>(ch: &C) -> bool
   where
     C: AsChar,
   {
-    match ch.as_char() {
-      'a'..='z' | 'A'..='Z' | '_' => true,
-      _ => false,
-    }
+    matches!(ch.as_char(), 'a'..='z' | 'A'..='Z' | '_')
   }
 
   pub fn is_middle_of_word<C>(ch: &C) -> bool
   where
     C: AsChar,
   {
-    match ch.as_char() {
-      'a'..='z' | 'A'..='Z' | '_' | '0'..='9' => true,
-      _ => false,
-    }
+    matches!(ch.as_char(), 'a'..='z' | 'A'..='Z' | '_' | '0'..='9')
   }
 
   pub fn is_symbol<C>(ch: &C) -> bool
   where
     C: AsChar,
   {
-    match ch.as_char() {
-      '=' | '+' | '-' | '*' | '>' | '<' | '(' | ')' => true,
-      _ => false,
-    }
+    matches!(ch.as_char(), '=' | '+' | '-' | '*' | '>' | '<' | '(' | ')')
   }
 
   pub fn is_digit<C>(ch: &C) -> bool
   where
     C: AsChar,
   {
-    match ch.as_char() {
-      '0'..='9' => true,
-      _ => false,
-    }
+    matches!(ch.as_char(), '0'..='9')
   }
 
   pub fn is_dot<C>(ch: &C) -> bool
@@ -108,7 +93,7 @@ pub mod lexer {
 
     fn next(&mut self) -> Option<Self::Item> {
       if let Some(ch) = self.chars.next() {
-        let tuple = (self.next_point.clone(), ch);
+        let tuple = (self.next_point, ch);
         self.next_point = self.next_point.next(ch);
         Some(tuple)
       } else {
@@ -157,7 +142,7 @@ pub mod lexer {
     }
 
     fn skip_while(&mut self, guard: CharGuard<(Point<'src>, char)>) {
-      while let Some(_) = self.scanner.next_if(guard) {}
+      while self.scanner.next_if(guard).is_some() {}
     }
 
     fn push_if(&mut self, kind: Kind, guard: CharGuard<(Point<'src>, char)>) -> bool {
@@ -172,9 +157,9 @@ pub mod lexer {
     fn pop(&mut self) -> Token<'src> {
       let acc = self.acc.take().unwrap();
       let span = Span::new(acc.start, acc.end);
-      let lexeme = span.to_slice(&self.source.contents);
-      let token = Token::new(acc.kind, span, lexeme);
-      token
+      let lexeme = span.to_slice(self.source.contents);
+
+      Token::new(acc.kind, span, lexeme)
     }
 
     fn swap_kind(&mut self, kind: Kind) {

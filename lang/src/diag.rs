@@ -65,7 +65,7 @@ impl Snippet {
     let lines_below = 2;
     let first_focused_line = span.start.line;
     let last_focused_line = span.end.line;
-    let first_visible_line = if first_focused_line + 1 <= lines_above {
+    let first_visible_line = if first_focused_line < lines_above {
       1
     } else {
       first_focused_line - lines_above

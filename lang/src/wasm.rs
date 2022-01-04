@@ -11,9 +11,7 @@ pub trait Encode {
 
 macro_rules! encode {
   ($prefix:expr) => {{
-    let mut bytes: Bytes = Vec::new();
-    bytes.push($prefix);
-    bytes
+    vec![$prefix]
   }};
   ($prefix:expr, $a:expr) => {{
     let mut bytes: Bytes = vec![$prefix];
@@ -50,6 +48,12 @@ impl Module {
     let func_index = self.func_section.push(type_index);
     self.code_section.push(code);
     func_index
+  }
+}
+
+impl Default for Module {
+  fn default() -> Self {
+    Self::new()
   }
 }
 
@@ -166,7 +170,7 @@ impl TypeSection {
 
   pub fn append(&mut self, ty: Type) -> TypeIndex {
     if let Some(cached_id) = self.cache.get(&ty) {
-      cached_id.clone()
+      *cached_id
     } else {
       let id = TypeIndex(self.types.len());
       self.cache.insert(ty.clone(), id);
@@ -358,6 +362,12 @@ impl Code {
   }
 }
 
+impl Default for Code {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 impl Encode for Code {
   fn encode(&self) -> Bytes {
     let mut contents: Bytes = vec![];
@@ -440,6 +450,13 @@ impl<T: Encode> LengthPrefixedVec<T> {
     Self(vec![])
   }
 }
+
+impl<T: Encode> Default for LengthPrefixedVec<T> {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 impl<T: Encode> IntoIterator for LengthPrefixedVec<T> {
   type Item = T;
   type IntoIter = std::vec::IntoIter<Self::Item>;

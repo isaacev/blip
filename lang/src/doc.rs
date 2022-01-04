@@ -77,7 +77,7 @@ impl Doc {
           indent -= 1;
         }
         Inst::Write(s) => {
-          if s.len() > 0 {
+          if !s.is_empty() {
             on_newline = false;
           }
           w.write(s);
@@ -100,6 +100,12 @@ impl Doc {
         }
       }
     }
+  }
+}
+
+impl Default for Doc {
+  fn default() -> Self {
+    Self::new()
   }
 }
 

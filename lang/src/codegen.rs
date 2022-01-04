@@ -19,7 +19,7 @@ impl<'a> Scope<'a> {
 
   fn subscope(&'a self) -> Scope<'a> {
     Self {
-      parent: Some(&self),
+      parent: Some(self),
       table: HashMap::new(),
     }
   }
@@ -30,7 +30,7 @@ impl<'a> Scope<'a> {
 
   fn lookup(&self, name: &str) -> Option<wasm::LocalIndex> {
     match (self.table.get(name), self.parent) {
-      (Some(index), _) => Some(index.clone()),
+      (Some(index), _) => Some(*index),
       (None, Some(parent)) => parent.lookup(name),
       (None, None) => None,
     }
