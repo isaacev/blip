@@ -1,15 +1,15 @@
 #[derive(Clone, Copy)]
 pub struct Point<'src> {
-  src: &'src Source,
+  pub source: &'src Source<'src>,
   offset: usize,
-  line: usize,
-  column: usize,
+  pub line: usize,
+  pub column: usize,
 }
 
 impl<'src> Point<'src> {
-  pub fn new(src: &'src Source) -> Point {
+  pub fn new(source: &'src Source) -> Point<'src> {
     Point {
-      src,
+      source,
       offset: 0,
       line: 1,
       column: 1,
@@ -23,17 +23,11 @@ impl<'src> Point<'src> {
     let column = if is_newline { 1 } else { self.column + 1 };
 
     Point {
-      src: self.src,
+      source: self.source,
       offset,
       line,
       column,
     }
-  }
-}
-
-impl<'src> std::fmt::Display for Point<'src> {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "({}:{})", self.line, self.column)
   }
 }
 
@@ -66,26 +60,7 @@ pub trait AsSpan {
   fn as_span(&self) -> Span;
 }
 
-pub struct Source {
-  pub name: String,
-  pub contents: String,
+pub struct Source<'src> {
+  pub filename: &'src str,
+  pub contents: &'src str,
 }
-
-pub struct Error<'src> {
-  pub span: Span<'src>,
-  pub message: String,
-}
-
-impl<'a> std::fmt::Debug for Error<'a> {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(
-      f,
-      "Error: {message} at {position} in {filename}",
-      message = self.message,
-      position = self.span.start,
-      filename = self.span.start.src.name
-    )
-  }
-}
-
-pub type Result<'a, T> = std::result::Result<T, Error<'a>>;

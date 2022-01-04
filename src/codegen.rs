@@ -37,9 +37,9 @@ impl<'a> Scope<'a> {
   }
 }
 
-fn ir_type_to_wasm_type(ty: &ty::Type) -> wasm::Type {
+fn ir_type_to_wasm_type(ty: &ty::Ty) -> wasm::Type {
   match ty {
-    ty::Type::Const(name) => match name.as_str() {
+    ty::Ty::Const(name) => match name.as_str() {
       "int" => wasm::Type::I32,
       _ => unimplemented!(),
     },

@@ -1,491 +1,389 @@
+use super::diag;
 use super::syntax::{ast, ir};
-use std::cell::Cell;
-use std::collections::{HashMap, HashSet};
-use std::fmt;
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::hash::Hash;
-use std::ops::{Deref, DerefMut};
+use std::rc::Rc;
 
-trait Union {
-  fn union(&self, other: &Self) -> Self;
-}
+pub type Name = String;
 
-impl<K, V> Union for HashMap<K, V>
-where
-  K: Clone + Eq + Hash,
-  V: Clone,
-{
-  fn union(&self, other: &Self) -> Self {
-    let mut res = self.clone();
-    for (key, value) in other {
-      res.entry(key.clone()).or_insert(value.clone());
-    }
-    res
+#[derive(Debug, Hash, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Id(usize);
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Level(usize);
+
+impl Level {
+  fn zero() -> Self {
+    Self(0)
+  }
+
+  fn increment(&self) -> Self {
+    Self(self.0 + 1)
   }
 }
 
-/// A trait common to al things considered types or type-like.
-trait Types {
-  /// Find the set of free variables in a type.
-  fn find_free_type_vars(&self) -> HashSet<Var>;
-
-  /// Applies a substitution to a type.
-  fn apply(&self, subst: &Substitutions) -> Self;
+#[derive(Debug, Clone)]
+pub enum Var {
+  Unbound(Id, Level),
+  Link(Box<Ty>),
+  Generic(Id),
 }
 
-impl<'a, T> Types for Vec<T>
-where
-  T: Types,
-{
-  // The free type variables of a vector of types is the union of the free type
-  // variables of each of the types in the vector.
-  fn find_free_type_vars(&self) -> HashSet<Var> {
-    self
-      .iter()
-      .map(|x| x.find_free_type_vars())
-      .fold(HashSet::new(), |set, x| set.union(&x).cloned().collect())
-  }
-
-  // To apply a substitution to a vector of types, just apply to each type in
-  // the vector.
-  fn apply(&self, s: &Substitutions) -> Vec<T> {
-    self.iter().map(|x| x.apply(s)).collect()
-  }
+#[derive(Debug, Clone)]
+pub enum Ty {
+  Const(Name),
+  Arrow(Vec<Self>, Box<Self>),
+  Var(Rc<RefCell<Var>>),
 }
 
-/// A mapping from type variables to types.
-#[derive(Clone)]
-struct Substitutions(HashMap<Var, Type>);
-
-impl Substitutions {
-  fn new() -> Self {
-    Self(HashMap::new())
-  }
-
-  fn compose(&self, other: &Substitutions) -> Substitutions {
-    Substitutions(
-      self.union(
-        &other
-          .iter()
-          .map(|(k, v)| (k.clone(), v.apply(self)))
-          .collect(),
-      ),
-    )
-  }
-}
-
-impl Deref for Substitutions {
-  type Target = HashMap<Var, Type>;
-
-  fn deref(&self) -> &HashMap<Var, Type> {
-    &self.0
-  }
-}
-
-impl DerefMut for Substitutions {
-  fn deref_mut(&mut self) -> &mut HashMap<Var, Type> {
-    &mut self.0
-  }
-}
-
-pub struct TypeError {
-  msg: String,
-}
-
-impl TypeError {
-  fn new(msg: String) -> Self {
-    Self { msg }
-  }
-}
-
-impl fmt::Display for TypeError {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    write!(f, "{}", self.msg)
-  }
-}
-
-type TypeResult<T> = std::result::Result<T, TypeError>;
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct Var {
-  id: usize,
-}
-
-impl Var {
-  fn bind(&self, ty: &Type) -> TypeResult<Substitutions> {
-    // Check for binding a variable to itself
-    if let Type::Var(ref v) = ty {
-      if v == self {
-        return Ok(Substitutions::new());
+impl Ty {
+  fn have_same_unbound_ids(a: &Ty, b: &Ty) -> bool {
+    if let (Ty::Var(ref cell_a), Ty::Var(cell_b)) = (a, b) {
+      if let (Var::Unbound(id_a, ..), Var::Unbound(id_b, ..)) =
+        (&*cell_a.borrow(), &*cell_b.borrow())
+      {
+        return id_a == id_b;
       }
     }
 
-    // the 'occurs' check prevents illegal recursive types
-    if ty.find_free_type_vars().contains(self) {
-      return Err(TypeError::new(format!(
-        "occur check fails: {} vs {}",
-        self, ty
-      )));
-    }
-
-    let mut s = Substitutions::new();
-    s.insert(self.clone(), ty.clone());
-    Ok(s)
+    false
   }
 }
 
-impl std::fmt::Display for Var {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    write!(f, "'t{}", self.id)
-  }
+struct Ids {
+  next: usize,
 }
 
-pub struct Vars {
-  next_id: Cell<usize>,
-}
-
-impl Vars {
+impl Ids {
   fn new() -> Self {
-    Self {
-      next_id: Cell::new(0),
-    }
+    Self { next: 0 }
   }
 
-  fn next(&self) -> Var {
-    let id = self.next_id.get();
-    self.next_id.set(id + 1);
-    Var { id }
+  fn next(&mut self) -> Id {
+    let next = Id(self.next);
+    self.next += 1;
+    next
   }
-}
 
-#[derive(Debug, Clone)]
-pub enum Type {
-  Const(String),
-  Var(Var),
-  Fun(Box<Type>, Box<Type>),
-}
-
-impl Type {
-  // A substitution S such that S(self) is congruent to S(other)
-  fn most_general_unifier(&self, other: &Type) -> TypeResult<Substitutions> {
-    match (self, other) {
-      // For functions, find the most general unifier for the inputs, apply the
-      // resulting substitution to the outputs, find the outputs' most general
-      // unifier, and finally compose the two resulting substitutions.
-      (Type::Fun(i1, o1), Type::Fun(i2, o2)) => {
-        let sub1 = i1.most_general_unifier(&*i2)?;
-        let sub2 = o1.apply(&sub1).most_general_unifier(&o2.apply(&sub1))?;
-        Ok(sub1.compose(&sub2))
-      }
-
-      // If one of the types is a variable, the variable can be bound to the
-      // other type. This also handles the case where both are variables.
-      (Type::Var(v), t) => v.bind(t),
-      (t, Type::Var(v)) => v.bind(t),
-
-      // If they are both primitives, make sure they are the same primitive.
-      (Type::Const(a), Type::Const(b)) if a == b => Ok(Substitutions::new()),
-
-      (a, b) => Err(TypeError::new(format!("unable to unify {} and {}", a, b))),
-    }
+  fn new_var(&mut self, level: Level) -> Ty {
+    Ty::Var(Rc::new(RefCell::new(Var::Unbound(self.next(), level))))
   }
 }
 
-impl fmt::Display for Type {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    match self {
-      Type::Const(name) => write!(f, "{}", name),
-      Type::Var(var) => write!(f, "{}", var),
-      Type::Fun(i, o) => write!(f, "({} → {})", i, o),
-    }
-  }
-}
-
-impl Types for Type {
-  fn find_free_type_vars(&self) -> HashSet<Var> {
-    match self {
-      Type::Var(ref v) => [v.clone()].iter().cloned().collect(),
-      Type::Const(_) => HashSet::new(),
-      Type::Fun(i, o) => i
-        .find_free_type_vars()
-        .union(&o.find_free_type_vars())
-        .cloned()
-        .collect(),
-    }
-  }
-
-  fn apply(&self, s: &Substitutions) -> Type {
-    match self {
-      Type::Var(v) => s.get(v).cloned().unwrap_or(self.clone()),
-      Type::Fun(i, o) => Type::Fun(Box::new(i.apply(s)), Box::new(o.apply(s))),
-      _ => self.clone(),
-    }
-  }
-}
-
-/// A polytype is a type in which there are a number of forall quantifiers, i.e.
-/// some parts of the type may not be concrete but instead correct for all
-/// possible types.
-#[derive(Debug, Clone)]
-pub struct Polytype {
-  pub vars: Vec<Var>,
-  pub ty: Type,
-}
-
-impl Types for Polytype {
-  /// The free type variables in a polytype are those that are free in the
-  /// internal type and not bound by the variable mapping.
-  fn find_free_type_vars(&self) -> HashSet<Var> {
-    self
-      .ty
-      .find_free_type_vars()
-      .difference(&self.vars.iter().cloned().collect())
-      .cloned()
-      .collect()
-  }
-
-  fn apply(&self, s: &Substitutions) -> Polytype {
-    Polytype {
-      vars: self.vars.clone(),
-      ty: {
-        let mut sub = s.clone();
-        for var in &self.vars {
-          sub.remove(var);
-        }
-        self.ty.apply(&sub)
-      },
-    }
-  }
-}
-
-impl Polytype {
-  /// Instantiates a polytype into a type. Replaces all bound type variables
-  /// with fresh type variables and return the resulting type.
-  fn instantiate(&self, vars: &Vars) -> Type {
-    let new_vars = self.vars.iter().map(|_| Type::Var(vars.next()));
-    self.ty.apply(&Substitutions(
-      self.vars.iter().cloned().zip(new_vars).collect(),
-    ))
-  }
-}
-
-#[derive(Debug, Clone)]
-struct Env(HashMap<String, Polytype>);
-
-impl Deref for Env {
-  type Target = HashMap<String, Polytype>;
-
-  fn deref(&self) -> &Self::Target {
-    &self.0
-  }
-}
-
-impl DerefMut for Env {
-  fn deref_mut(&mut self) -> &mut Self::Target {
-    &mut self.0
-  }
-}
-
-impl Types for Env {
-  fn find_free_type_vars(&self) -> HashSet<Var> {
-    self
-      .values()
-      .map(|x| x.clone())
-      .collect::<Vec<Polytype>>()
-      .find_free_type_vars()
-  }
-
-  fn apply(&self, s: &Substitutions) -> Env {
-    Env(self.iter().map(|(k, v)| (k.clone(), v.apply(s))).collect())
-  }
+struct Env {
+  env: HashMap<Name, Ty>,
 }
 
 impl Env {
   fn new() -> Self {
-    Env(HashMap::new())
+    Self {
+      env: HashMap::new(),
+    }
   }
 
-  fn generalize(&self, ty: &Type) -> Polytype {
-    Polytype {
-      vars: ty
-        .find_free_type_vars()
-        .difference(&self.find_free_type_vars())
-        .cloned()
+  fn extend(&self, name: Name, ty: Ty) -> Env {
+    let mut env = self.env.clone();
+    env.insert(name, ty);
+    Self { env }
+  }
+
+  fn lookup(&self, name: &Name) -> Option<&Ty> {
+    self.env.get(name)
+  }
+}
+
+fn occurs_check_adjust_levels(ty: &Ty, id: Id, level: Level) {
+  match ty {
+    Ty::Var(cell) => {
+      let var = cell.borrow().clone();
+      match &var {
+        Var::Link(ty) => occurs_check_adjust_levels(ty, id, level),
+        Var::Generic(..) => unreachable!(),
+        Var::Unbound(other_id, other_level) => {
+          if *other_id == id {
+            panic!("recursive types")
+          } else if *other_level > level {
+            *cell.borrow_mut() = Var::Unbound(*other_id, level);
+          }
+        }
+      }
+    }
+    Ty::Arrow(params, ret) => {
+      for param in params {
+        occurs_check_adjust_levels(param, id, level);
+      }
+      occurs_check_adjust_levels(ret, id, level);
+    }
+    Ty::Const(..) => (),
+  }
+}
+
+struct UnificationError(Ty, Ty);
+
+fn unify(ty_a: &Ty, ty_b: &Ty) -> Result<(), UnificationError> {
+  if Ty::have_same_unbound_ids(ty_a, ty_b) {
+    unreachable!()
+  }
+
+  match (ty_a, ty_b) {
+    (Ty::Const(name_a), Ty::Const(name_b)) if name_a == name_b => Ok(()),
+    (Ty::Arrow(params_a, ret_a), Ty::Arrow(params_b, ret_b)) => {
+      assert_eq!(params_a.len(), params_b.len());
+      for (param_a, param_b) in params_a.iter().zip(params_b) {
+        unify(param_a, param_b)?;
+      }
+      unify(ret_a, ret_b)
+    }
+    (Ty::Var(cell_a), _) => {
+      let var_a = cell_a.borrow().clone();
+      match &var_a {
+        Var::Link(ty_a) => unify(ty_a, ty_b),
+        Var::Unbound(id, level) => {
+          occurs_check_adjust_levels(ty_b, *id, *level);
+          *cell_a.borrow_mut() = Var::Link(Box::new(ty_b.clone()));
+          Ok(())
+        }
+        _ => Err(UnificationError(ty_a.clone(), ty_b.clone())),
+      }
+    }
+    (_, Ty::Var(cell_b)) => {
+      let var_b = cell_b.borrow().clone();
+      match &var_b {
+        Var::Link(ty_b) => unify(ty_a, ty_b),
+        Var::Unbound(id, level) => {
+          occurs_check_adjust_levels(ty_a, *id, *level);
+          *cell_b.borrow_mut() = Var::Link(Box::new(ty_a.clone()));
+          Ok(())
+        }
+        _ => Err(UnificationError(ty_a.clone(), ty_b.clone())),
+      }
+    }
+    _ => Err(UnificationError(ty_a.clone(), ty_b.clone())),
+  }
+}
+
+fn generalize(ty: &Ty, level: Level) -> Ty {
+  match ty {
+    Ty::Arrow(params, ret) => Ty::Arrow(
+      params.iter().map(|p| generalize(p, level)).collect(),
+      Box::new(generalize(ret, level)),
+    ),
+    Ty::Var(cell) => match &*cell.borrow() {
+      Var::Unbound(id, other_level, ..) if *other_level > level => {
+        Ty::Var(Rc::new(RefCell::new(Var::Generic(*id))))
+      }
+      Var::Link(ty) => generalize(ty, level),
+      Var::Generic(..) | Var::Unbound(..) => ty.clone(),
+    },
+    Ty::Const(..) => ty.clone(),
+  }
+}
+
+fn instantiate(ids: &mut Ids, id_var_map: &mut HashMap<Id, Ty>, ty: &Ty, level: Level) -> Ty {
+  match ty {
+    Ty::Const(..) => ty.clone(),
+    Ty::Arrow(params, ret) => Ty::Arrow(
+      params
+        .iter()
+        .map(|p| instantiate(ids, id_var_map, p, level))
         .collect(),
-      ty: ty.clone(),
-    }
-  }
-
-  fn infer(
-    &self,
-    exp: &ast::Expr,
-    vars: &Vars,
-    names: &ir::Names,
-  ) -> TypeResult<(Substitutions, Type, ir::Expr)> {
-    match exp {
-      ast::Expr::Paren(e) => self.infer(&e.expr, vars, names),
-
-      ast::Expr::Let(e) => {
-        let lexeme = e.name.0.lexeme;
-        let mut env = self.clone();
-        env.remove(lexeme);
-        let (binding_substitutions, binding_type, binding) = env.infer(&e.binding, vars, names)?;
-        let name = names.next(lexeme, binding_type.clone());
-
-        let binding_polytype = env.apply(&binding_substitutions).generalize(&binding_type);
-        env.insert(lexeme.to_owned(), binding_polytype);
-        let (body_substitutions, let_type, body) = env
-          .apply(&binding_substitutions)
-          .infer(&e.body, vars, names)?;
-
-        let let_substitutions = body_substitutions.compose(&binding_substitutions);
-        let let_expr = ir::Expr::Let(ir::Let {
-          name,
-          binding: Box::new(binding),
-          body: Box::new(body),
-        });
-
-        Ok((let_substitutions, let_type, let_expr))
-      }
-
-      ast::Expr::Binary(e) => {
-        let lexeme = e.operand.lexeme;
-
-        // Find the operand type signature
-        let (operand_subst, operand_type) = match self.get(lexeme) {
-          Some(s) => Ok((Substitutions::new(), s.instantiate(vars))),
-          None => Err(TypeError::new(format!("unknown operator {}", lexeme))),
-        }?;
-        let operand = names.next(lexeme, operand_type.clone());
-
-        // Apply the left operand
-        let (left_subst, left_type, left) =
-          self.apply(&operand_subst).infer(&e.left, vars, &names)?;
-        let tv = Type::Var(vars.next());
-        let s3 = operand_type
-          .apply(&left_subst)
-          .most_general_unifier(&Type::Fun(Box::new(left_type), Box::new(tv.clone())))?;
-
-        // Apply the right operand
-        let (u1, v1) = (
-          s3.compose(&left_subst.compose(&operand_subst)),
-          tv.apply(&s3),
-        );
-        let (right_subst, right_type, right) = self.apply(&u1).infer(&e.right, vars, &names)?;
-        let tv = Type::Var(vars.next());
-        let u3 = v1
-          .apply(&right_subst)
-          .most_general_unifier(&Type::Fun(Box::new(right_type), Box::new(tv.clone())))?;
-
-        let binary_subst = u3.compose(&right_subst.compose(&u1));
-        let binary_type = tv.apply(&u3);
-
-        let binary_expr = ir::Expr::Binary(ir::Binary {
-          operand,
-          left: Box::new(left),
-          right: Box::new(right),
-        });
-
-        Ok((binary_subst, binary_type, binary_expr))
-      }
-
-      ast::Expr::Unary(e) => {
-        let lexeme = e.operand.lexeme;
-
-        // Find the operand type signature
-        let (operand_subst, operand_type) = match self.get(lexeme) {
-          Some(s) => Ok((Substitutions::new(), s.instantiate(vars))),
-          None => Err(TypeError::new(format!("unknown operator {}", lexeme))),
-        }?;
-        let operand = names.next(lexeme, operand_type.clone());
-
-        let (right_subst, right_type, right) =
-          self.apply(&operand_subst).infer(&e.right, vars, &names)?;
-        let tv = Type::Var(vars.next());
-        let s3 = operand_type
-          .apply(&right_subst)
-          .most_general_unifier(&Type::Fun(Box::new(right_type), Box::new(tv.clone())))?;
-
-        let unary_subst = s3.compose(&right_subst.compose(&operand_subst));
-        let unary_type = tv.apply(&s3);
-        let unary_expr = ir::Expr::Unary(ir::Unary {
-          operand,
-          right: Box::new(right),
-        });
-
-        Ok((unary_subst, unary_type, unary_expr))
-      }
-
-      ast::Expr::Name(v) => match self.get(v.0.lexeme) {
-        Some(s) => {
-          let name_subst = Substitutions::new();
-          let name_type = s.instantiate(vars);
-          let name_expr = ir::Expr::Name(names.next(v.0.lexeme, name_type.clone()));
-          Ok((name_subst, name_type, name_expr))
+      Box::new(instantiate(ids, id_var_map, ret, level)),
+    ),
+    Ty::Var(cell) => match &*cell.borrow() {
+      Var::Link(ty) => instantiate(ids, id_var_map, ty, level),
+      Var::Generic(id) => {
+        if let Some(var) = id_var_map.get(id) {
+          var.clone()
+        } else {
+          let var = ids.new_var(level);
+          id_var_map.insert(*id, var.clone());
+          var
         }
-        None => {
-          return Err(TypeError::new(format!(
-            "unbound variable: {} at {}",
-            v.0.lexeme, v.0.span.start
+      }
+      Var::Unbound(..) => ty.clone(),
+    },
+  }
+}
+
+enum FuncError {
+  NotCallable,
+  WrongNumberOfArgs { expected: usize },
+}
+
+fn match_fun_ty(num_params: usize, ids: &mut Ids, ty: &Ty) -> Result<(Vec<Ty>, Ty), FuncError> {
+  match ty {
+    Ty::Arrow(params_ty, ret_ty) => {
+      if params_ty.len() != num_params {
+        Err(FuncError::WrongNumberOfArgs {
+          expected: params_ty.len(),
+        })
+      } else {
+        Ok((params_ty.clone(), *ret_ty.clone()))
+      }
+    }
+    Ty::Var(cell) => {
+      let var = cell.borrow().clone();
+      match &var {
+        Var::Link(ty) => match_fun_ty(num_params, ids, &*ty),
+        Var::Unbound(_id, level) => {
+          let params_ty: Vec<Ty> = (0..num_params)
+            .into_iter()
+            .map(|_| ids.new_var(*level))
+            .collect();
+          let ret_ty = ids.new_var(*level);
+          *cell.borrow_mut() = Var::Link(Box::new(Ty::Arrow(
+            params_ty.clone(),
+            Box::new(ret_ty.clone()),
           )));
+          Ok((params_ty, ret_ty))
         }
-      },
-      ast::Expr::Integer(e) => {
-        let int_subst = Substitutions::new();
-        let int_type = Type::Const("int".to_owned());
-        let int_expr = ir::Expr::Integer(ir::Integer {
-          repr: e.0.lexeme.to_owned(),
-        });
-        Ok((int_subst, int_type, int_expr))
-      }
-      ast::Expr::Float(e) => {
-        let float_subst = Substitutions::new();
-        let float_type = Type::Const("float".to_owned());
-        let float_expr = ir::Expr::Float(ir::Float {
-          repr: e.0.lexeme.to_owned(),
-        });
-        Ok((float_subst, float_type, float_expr))
+        _ => Err(FuncError::NotCallable),
       }
     }
+    _ => Err(FuncError::NotCallable),
   }
 }
 
-fn binop(env: &mut Env, oper: &str, left: Type, right: Type, ret: Type) {
-  let ty = Type::Fun(
-    Box::new(left),
-    Box::new(Type::Fun(Box::new(right), Box::new(ret))),
-  );
-  let vars = ty.find_free_type_vars().into_iter().collect();
-  let poly = Polytype { vars, ty };
-  env.insert(oper.to_owned(), poly);
+pub trait AsTy {
+  fn as_ty(&self) -> &Ty;
 }
 
-fn unop(env: &mut Env, oper: &str, right: Type, ret: Type) {
-  let ty = Type::Fun(Box::new(right), Box::new(ret));
-  let vars = ty.find_free_type_vars().into_iter().collect();
-  let poly = Polytype { vars, ty };
-  env.insert(oper.to_owned(), poly);
+fn lower_expr<'src>(
+  expr: &ast::Expr<'src>,
+  ids: &mut Ids,
+  env: &mut Env,
+  level: Level,
+) -> Result<ir::Expr, diag::Error> {
+  match expr {
+    ast::Expr::Paren(e) => lower_expr(&*e.expr, ids, env, level),
+    ast::Expr::Let(e) => {
+      let value_expr = lower_expr(&e.binding, ids, env, level.increment())?;
+      let gen_ty = generalize(value_expr.as_ty(), level);
+      let env = &mut env.extend(e.name.0.lexeme.into(), gen_ty);
+      let body_expr = lower_expr(&e.body, ids, env, level)?;
+      Ok(ir::Expr::Let(ir::Let {
+        name: ir::Name {
+          ty: value_expr.as_ty().clone(),
+          canonical: e.name.0.lexeme.into(),
+        },
+        binding: Box::new(value_expr),
+        body: Box::new(body_expr),
+      }))
+    }
+    ast::Expr::Binary(e) => {
+      if let Some(operand_ty) = env.lookup(&e.operand.lexeme.into()) {
+        match match_fun_ty(2, ids, operand_ty) {
+          Err(FuncError::NotCallable) => Err(
+            diag::ErrorBuilder::from(e.operand.span)
+              .title("not callable")
+              .done(),
+          ),
+          Err(FuncError::WrongNumberOfArgs { expected }) => Err(
+            diag::ErrorBuilder::from(e.operand.span)
+              .title(format!("expected {} arguments", expected))
+              .done(),
+          ),
+          Ok((param_tys, ret_ty)) => {
+            let operand = ir::Name {
+              ty: operand_ty.clone(),
+              canonical: e.operand.lexeme.to_owned(),
+            };
+
+            let left = lower_expr(&*e.left, ids, env, level)?;
+            unify(param_tys.get(0).unwrap(), left.as_ty()).ok();
+
+            let right = lower_expr(&*e.right, ids, env, level)?;
+            unify(param_tys.get(1).unwrap(), right.as_ty()).ok();
+
+            Ok(ir::Expr::Binary(ir::Binary {
+              ty: ret_ty,
+              operand,
+              left: Box::new(left),
+              right: Box::new(right),
+            }))
+          }
+        }
+      } else {
+        Err(
+          diag::ErrorBuilder::from(e.operand.span)
+            .title("unknown binary operator")
+            .done(),
+        )
+      }
+    }
+    ast::Expr::Unary(e) => {
+      if let Some(operand_ty) = env.lookup(&e.operand.lexeme.into()) {
+        match match_fun_ty(1, ids, operand_ty) {
+          Err(FuncError::NotCallable) => Err(
+            diag::ErrorBuilder::from(e.operand.span)
+              .title("not callable")
+              .done(),
+          ),
+          Err(FuncError::WrongNumberOfArgs { expected }) => Err(
+            diag::ErrorBuilder::from(e.operand.span)
+              .title(format!("expected {} arguments", expected))
+              .done(),
+          ),
+          Ok((param_tys, ret_ty)) => {
+            let operand = ir::Name {
+              ty: operand_ty.clone(),
+              canonical: e.operand.lexeme.to_owned(),
+            };
+
+            let right = lower_expr(&*e.right, ids, env, level)?;
+            unify(param_tys.get(1).unwrap(), right.as_ty()).ok();
+
+            Ok(ir::Expr::Unary(ir::Unary {
+              ty: ret_ty,
+              operand,
+              right: Box::new(right),
+            }))
+          }
+        }
+      } else {
+        Err(
+          diag::ErrorBuilder::from(e.operand.span)
+            .title("unknown unary operator")
+            .done(),
+        )
+      }
+    }
+    ast::Expr::Name(e) => {
+      if let Some(ty) = env.lookup(&e.0.lexeme.into()) {
+        let mut id_var_map = HashMap::new();
+        let ty = instantiate(ids, &mut id_var_map, ty, level);
+        let canonical = e.0.lexeme.to_owned();
+        Ok(ir::Expr::Name(ir::Name { ty, canonical }))
+      } else {
+        Err(
+          diag::ErrorBuilder::from(e.0.span)
+            .title("unknown variable")
+            .done(),
+        )
+      }
+    }
+    ast::Expr::Integer(e) => Ok(ir::Expr::Integer(ir::Integer {
+      ty: Ty::Const("int".into()),
+      repr: e.0.lexeme.into(),
+    })),
+    ast::Expr::Float(e) => Ok(ir::Expr::Float(ir::Float {
+      ty: Ty::Const("float".into()),
+      repr: e.0.lexeme.into(),
+    })),
+  }
 }
 
-pub fn infer(expr: &ast::Expr) -> TypeResult<(Type, ir::Expr)> {
+pub fn lower<'src>(tree: &ast::Expr<'src>) -> Result<ir::Expr, diag::Error> {
+  let mut ids = Ids::new();
   let mut env = Env::new();
-  let vars = Vars::new();
-  let names = ir::Names::new();
+  let level = Level::zero();
 
-  let t_int = Type::Const("int".to_owned());
-  let t_bool = Type::Const("bool".to_owned());
-  let a = Type::Var(vars.next());
+  let i = Ty::Const("int".to_owned());
+  env.env.insert(
+    "+".to_owned(),
+    Ty::Arrow(vec![i.clone(), i.clone()], Box::new(i)),
+  );
 
-  binop(&mut env, "+", t_int.clone(), t_int.clone(), t_int.clone());
-  binop(&mut env, "-", t_int.clone(), t_int.clone(), t_int.clone());
-  binop(&mut env, "*", t_int.clone(), t_int.clone(), t_int.clone());
-
-  binop(&mut env, "<", a.clone(), a.clone(), t_bool.clone());
-  binop(&mut env, ">", a.clone(), a.clone(), t_bool.clone());
-  binop(&mut env, "<=", a.clone(), a.clone(), t_bool.clone());
-  binop(&mut env, ">=", a.clone(), a.clone(), t_bool.clone());
-
-  unop(&mut env, "print", a.clone(), a.clone());
-
-  let (s, t, e) = env.infer(expr, &vars, &names)?;
-  Ok((t.apply(&s), e))
+  lower_expr(tree, &mut ids, &mut env, level)
 }

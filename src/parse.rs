@@ -82,7 +82,7 @@ mod chars {
   }
 }
 
-mod lexer {
+pub mod lexer {
   use super::super::err::{Point, Source, Span};
   use super::super::syntax::token::{Kind, Token};
   use super::chars;
@@ -136,7 +136,7 @@ mod lexer {
   }
 
   pub struct Lexer<'src> {
-    source: &'src Source,
+    source: &'src Source<'src>,
     scanner: Peekable<Scanner<'src>>,
     acc: Option<Accumulator<'src>>,
     lookahead: Option<Option<Token<'src>>>,
@@ -249,7 +249,7 @@ mod lexer {
 }
 
 mod parser {
-  use super::super::err;
+  use super::super::diag;
   use super::super::err::{Source, Span};
   use super::super::syntax::ast;
   use super::super::syntax::token::{Kind, Token};
@@ -298,56 +298,49 @@ mod parser {
   }
 
   impl<'src> Parser<'src> {
-    fn err_wanted_expr_found_token(&self, found: Token<'src>) -> err::Error<'src> {
-      err::Error {
-        span: found.span,
-        message: format!("expected an expression, found {}", found.kind),
-      }
+    fn err_wanted_expr_found_token(&self, found: Token<'src>) -> diag::Error {
+      diag::ErrorBuilder::from(found.span)
+        .title(format!("expected an expression, found {}", found.kind))
+        .done()
     }
 
-    fn err_wanted_expr_found_eof(&self) -> err::Error<'src> {
-      err::Error {
-        span: Span::from(self.lexer.last_read_point),
-        message: "expected an expression, found end-of-file".to_owned(),
-      }
+    fn err_wanted_expr_found_eof(&self) -> diag::Error {
+      diag::ErrorBuilder::from(Span::from(self.lexer.last_read_point))
+        .title("expected an expression, found end-of-file")
+        .done()
     }
 
-    fn err_wanted_token_found_token(&self, expected: Kind, found: Token<'src>) -> err::Error<'src> {
-      err::Error {
-        span: found.span,
-        message: format!("expected {}, found {}", expected, found.kind),
-      }
+    fn err_wanted_token_found_token(&self, expected: Kind, found: Token<'src>) -> diag::Error {
+      diag::ErrorBuilder::from(found.span)
+        .title(format!("expected {}, found {}", expected, found.kind))
+        .done()
     }
 
-    fn err_wanted_token_found_eof(&self, expected: Kind) -> err::Error<'src> {
-      err::Error {
-        span: Span::from(self.lexer.last_read_point),
-        message: format!("expected {}, found end-of-file", expected),
-      }
+    fn err_wanted_token_found_eof(&self, expected: Kind) -> diag::Error {
+      diag::ErrorBuilder::from(Span::from(self.lexer.last_read_point))
+        .title(format!("expected {}, found end-of-file", expected))
+        .done()
     }
 
-    fn err_wanted_oper_found_token(&self, found: Token<'src>) -> err::Error<'src> {
-      err::Error {
-        span: found.span,
-        message: format!("expected an operator, found {}", found.kind),
-      }
+    fn err_wanted_oper_found_token(&self, found: Token<'src>) -> diag::Error {
+      diag::ErrorBuilder::from(found.span)
+        .title(format!("expected an operator, found {}", found.kind))
+        .done()
     }
 
-    fn err_wanted_oper_found_eof(&self) -> err::Error<'src> {
-      err::Error {
-        span: Span::from(self.lexer.last_read_point),
-        message: "expected an operator, found end-of-file".to_owned(),
-      }
+    fn err_wanted_oper_found_eof(&self) -> diag::Error {
+      diag::ErrorBuilder::from(Span::from(self.lexer.last_read_point))
+        .title("expected an operator, found end-of-file")
+        .done()
     }
 
-    fn err_unexpected_char(&self, token: Token<'src>) -> err::Error<'src> {
-      err::Error {
-        span: token.span,
-        message: format!("unexpected character: '{}'", token.lexeme),
-      }
+    fn err_unexpected_char(&self, token: Token<'src>) -> diag::Error {
+      diag::ErrorBuilder::from(token.span)
+        .title(format!("unexpected character: '{}'", token.lexeme))
+        .done()
     }
 
-    fn next(&mut self) -> err::Result<'src, Option<Token<'src>>> {
+    fn next(&mut self) -> diag::Result<Option<Token<'src>>> {
       match self.lexer.next() {
         Some(tok) if tok.kind == Kind::Error => Err(self.err_unexpected_char(tok)),
         Some(tok) => Ok(Some(tok)),
@@ -355,7 +348,7 @@ mod parser {
       }
     }
 
-    fn next_kind(&mut self, expect: Kind) -> err::Result<'src, Token<'src>> {
+    fn next_kind(&mut self, expect: Kind) -> diag::Result<Token<'src>> {
       match self.next()? {
         Some(tok) if tok.kind == expect => Ok(tok),
         Some(tok) => Err(self.err_wanted_token_found_token(expect, tok)),
@@ -363,7 +356,7 @@ mod parser {
       }
     }
 
-    fn next_token(&mut self, kind: Kind, lexeme: &str) -> err::Result<'src, Token<'src>> {
+    fn next_token(&mut self, kind: Kind, lexeme: &str) -> diag::Result<Token<'src>> {
       match self.next()? {
         Some(tok) if tok.kind == kind && tok.lexeme == lexeme => Ok(tok),
         Some(tok) => Err(self.err_wanted_token_found_token(kind, tok)),
@@ -371,26 +364,26 @@ mod parser {
       }
     }
 
-    fn next_if_kind(&mut self, kind: Kind) -> err::Result<'src, Option<Token<'src>>> {
+    fn next_if_kind(&mut self, kind: Kind) -> diag::Result<Option<Token<'src>>> {
       match self.lexer.peek() {
         Some(tok) if tok.kind == kind => Ok(Some((self.next()?).unwrap())),
         _ => Ok(None),
       }
     }
 
-    fn next_if_lexeme(&mut self, keyword: &str) -> err::Result<'src, Option<Token<'src>>> {
+    fn next_if_lexeme(&mut self, keyword: &str) -> diag::Result<Option<Token<'src>>> {
       match self.lexer.peek() {
         Some(tok) if tok.lexeme == keyword => Ok(Some(self.next()?.unwrap())),
         _ => Ok(None),
       }
     }
 
-    fn name(&mut self) -> err::Result<'src, ast::Name<'src>> {
+    fn name(&mut self) -> diag::Result<ast::Name<'src>> {
       let name = self.next_kind(Kind::Word)?;
       Ok(ast::Name(name))
     }
 
-    fn paren_expr(&mut self, left_paren: Token<'src>) -> err::Result<'src, ast::Paren<'src>> {
+    fn paren_expr(&mut self, left_paren: Token<'src>) -> diag::Result<ast::Paren<'src>> {
       let expr = Box::new(self.expr(LOWEST)?);
       let right_paren = self.next_token(Kind::Symbol, ")")?;
       Ok(ast::Paren {
@@ -399,7 +392,7 @@ mod parser {
       })
     }
 
-    fn let_expr(&mut self, keyword: Token<'src>) -> err::Result<'src, ast::Let<'src>> {
+    fn let_expr(&mut self, keyword: Token<'src>) -> diag::Result<ast::Let<'src>> {
       let name = self.name()?;
       self.next_token(Kind::Symbol, "=")?;
       let binding = Box::new(self.expr(LOWEST)?);
@@ -415,24 +408,24 @@ mod parser {
       })
     }
 
-    fn print_expr(&mut self, operand: Token<'src>) -> err::Result<'src, ast::Unary<'src>> {
+    fn print_expr(&mut self, operand: Token<'src>) -> diag::Result<ast::Unary<'src>> {
       let right = Box::new(self.expr(UNARY)?);
       Ok(ast::Unary { operand, right })
     }
 
-    fn name_expr(&mut self, word: Token<'src>) -> err::Result<'src, ast::Name<'src>> {
+    fn name_expr(&mut self, word: Token<'src>) -> diag::Result<ast::Name<'src>> {
       Ok(ast::Name(word))
     }
 
-    fn integer_expr(&mut self, integer: Token<'src>) -> err::Result<'src, ast::Integer<'src>> {
+    fn integer_expr(&mut self, integer: Token<'src>) -> diag::Result<ast::Integer<'src>> {
       Ok(ast::Integer(integer))
     }
 
-    fn float_expr(&mut self, float: Token<'src>) -> err::Result<'src, ast::Float<'src>> {
+    fn float_expr(&mut self, float: Token<'src>) -> diag::Result<ast::Float<'src>> {
       Ok(ast::Float(float))
     }
 
-    fn prefix_expr(&mut self) -> err::Result<'src, ast::Expr<'src>> {
+    fn prefix_expr(&mut self) -> diag::Result<ast::Expr<'src>> {
       if let Some(left) = self.next_if_lexeme("(")? {
         self.paren_expr(left).map(ast::Expr::Paren)
       } else if let Some(keyword) = self.next_if_lexeme("let")? {
@@ -456,7 +449,7 @@ mod parser {
       &mut self,
       left: ast::Expr<'src>,
       operand: Token<'src>,
-    ) -> err::Result<'src, ast::Binary<'src>> {
+    ) -> diag::Result<ast::Binary<'src>> {
       let left = Box::new(left);
       let right = Box::new(self.expr(operand.to_infix_precedence())?);
       Ok(ast::Binary {
@@ -466,7 +459,7 @@ mod parser {
       })
     }
 
-    fn postfix_expr(&mut self, left: ast::Expr<'src>) -> err::Result<'src, ast::Expr<'src>> {
+    fn postfix_expr(&mut self, left: ast::Expr<'src>) -> diag::Result<ast::Expr<'src>> {
       if let Some(oper) = self.next_if_kind(Kind::Symbol)? {
         self.binary_expr(left, oper).map(ast::Expr::Binary)
       } else if let Some(tok) = self.next()? {
@@ -484,7 +477,7 @@ mod parser {
         .unwrap_or(LOWEST)
     }
 
-    pub fn expr(&mut self, threshold: Precedence) -> err::Result<'src, ast::Expr<'src>> {
+    pub fn expr(&mut self, threshold: Precedence) -> diag::Result<ast::Expr<'src>> {
       let mut prefix = self.prefix_expr()?;
       while threshold < self.peek_precedence() {
         prefix = self.postfix_expr(prefix)?;
@@ -493,7 +486,7 @@ mod parser {
     }
   }
 
-  impl<'src> From<&'src Source> for Parser<'src> {
+  impl<'src> From<&'src Source<'src>> for Parser<'src> {
     fn from(source: &'src Source) -> Parser<'src> {
       Parser {
         lexer: Lexer::new(source),
@@ -502,9 +495,10 @@ mod parser {
   }
 }
 
+use super::diag;
 use super::err;
 use super::syntax::ast;
 
-pub fn parse<'src>(source: &'src err::Source) -> err::Result<ast::Expr<'src>> {
+pub fn parse<'src>(source: &'src err::Source<'src>) -> diag::Result<ast::Expr<'src>> {
   parser::Parser::from(source).expr(parser::LOWEST)
 }

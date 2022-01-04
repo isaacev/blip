@@ -44,9 +44,11 @@ pub mod token {
 }
 
 pub mod ast {
+  use super::super::doc;
+  use super::super::doc::ToDoc;
   use super::super::err::{Point, Span};
-  use super::super::print::{Document, Printable};
   use super::token::Token;
+  use std::fmt;
 
   pub enum Expr<'src> {
     Let(Let<'src>),
@@ -59,18 +61,6 @@ pub mod ast {
   }
 
   impl<'src> Expr<'src> {
-    pub fn start(&self) -> Point<'src> {
-      match self {
-        Expr::Let(e) => e.span.start,
-        Expr::Paren(e) => e.span.start,
-        Expr::Unary(e) => e.operand.span.start,
-        Expr::Binary(e) => e.left.start(),
-        Expr::Name(e) => e.0.span.start,
-        Expr::Integer(e) => e.0.span.start,
-        Expr::Float(e) => e.0.span.start,
-      }
-    }
-
     pub fn end(&self) -> Point<'src> {
       match self {
         Expr::Let(e) => e.span.end,
@@ -81,6 +71,13 @@ pub mod ast {
         Expr::Integer(e) => e.0.span.end,
         Expr::Float(e) => e.0.span.end,
       }
+    }
+  }
+
+  impl fmt::Display for Expr<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+      let s: String = self.to_doc().into();
+      write!(f, "{}", s)
     }
   }
 
@@ -113,84 +110,79 @@ pub mod ast {
 
   pub struct Float<'src>(pub Token<'src>);
 
-  impl<'src> Printable<'src> for Expr<'src> {
-    fn to_doc(&self) -> Document<'src> {
+  impl doc::ToDoc for Expr<'_> {
+    fn to_doc(&self) -> doc::Doc {
       match self {
-        Expr::Let(let_) => Document::new()
-          .write("(let")
-          .line_break()
-          .inc()
-          .indent()
-          .write("(define ")
-          .then(let_.name.to_doc())
-          .space()
-          .then(let_.binding.to_doc())
-          .write(")")
-          .line_break()
-          .indent()
-          .then(let_.body.to_doc())
-          .dec()
-          .write(")"),
-        Expr::Paren(paren) => paren.expr.to_doc(),
-        Expr::Unary(unary) => Document::new()
-          .write("(")
-          .write(unary.operand.lexeme)
-          .space()
-          .then(unary.right.to_doc())
-          .write(")"),
-        Expr::Binary(binary) => Document::new()
-          .write("(")
-          .write(binary.operand.lexeme)
-          .space()
-          .then(binary.left.to_doc())
-          .space()
-          .then(binary.right.to_doc())
-          .write(")"),
+        Expr::Let(let_) => {
+          let mut d = doc::Doc::new();
+          d.write("(let");
+          d.newline_if_not_blank();
+          d.increment_indent();
+          d.indent();
+          d.write("(define ");
+          d.then(&let_.name);
+          d.space();
+          d.then(&*let_.binding);
+          d.write(")");
+          d.newline_if_not_blank();
+          d.indent();
+          d.then(&*let_.body);
+          d.decrement_indent();
+          d.write(")");
+          d
+        }
+        Expr::Paren(paren) => (&*paren.expr).to_doc(),
+        Expr::Unary(unary) => {
+          let mut d = doc::Doc::new();
+          d.write("(");
+          d.write(unary.operand.lexeme);
+          d.space();
+          d.then(&*unary.right);
+          d.write(")");
+          d
+        }
+        Expr::Binary(binary) => {
+          let mut d = doc::Doc::new();
+          d.write("(");
+          d.write(binary.operand.lexeme);
+          d.space();
+          d.then(&*binary.left);
+          d.space();
+          d.then(&*binary.right);
+          d.write(")");
+          d
+        }
         Expr::Name(name) => name.to_doc(),
-        Expr::Integer(integer) => Document::new().write(integer.0.lexeme),
-        Expr::Float(float) => Document::new().write(float.0.lexeme),
+        Expr::Integer(integer) => {
+          let mut d = doc::Doc::new();
+          d.write(integer.0.lexeme);
+          d
+        }
+        Expr::Float(float) => {
+          let mut d = doc::Doc::new();
+          d.write(float.0.lexeme);
+          d
+        }
       }
     }
   }
 
-  impl<'src> Printable<'src> for Name<'src> {
-    fn to_doc(&self) -> Document<'src> {
-      Document::new().write(self.0.lexeme)
+  impl doc::ToDoc for Name<'_> {
+    fn to_doc(&self) -> doc::Doc {
+      let mut d = doc::Doc::new();
+      d.write(self.0.lexeme);
+      d
     }
   }
 }
 
 pub mod ir {
   use super::super::ty;
-  use std::cell::Cell;
   use std::fmt;
 
-  pub struct Names {
-    next_id: Cell<usize>,
-  }
-
-  impl Names {
-    pub fn new() -> Self {
-      Self {
-        next_id: Cell::new(0),
-      }
-    }
-
-    pub fn next<S: ToString>(&self, canonical: S, ty: ty::Type) -> Name {
-      let id = self.next_id.get();
-      self.next_id.set(id + 1);
-      Name {
-        id,
-        canonical: canonical.to_string(),
-        ty,
-      }
-    }
-  }
-
   pub struct Name {
-    id: usize,
+    pub ty: ty::Ty,
     pub canonical: String,
-    pub ty: ty::Type,
   }
 
   impl fmt::Display for Name {
@@ -201,18 +193,8 @@ pub mod ir {
 
   impl fmt::Debug for Name {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-      write!(f, "{} :: {}", self.canonical, self.ty)
+      write!(f, "{} :: {:?}", self.canonical, self.ty)
     }
-  }
-
-  impl PartialEq for Name {
-    fn eq(&self, other: &Self) -> bool {
-      self.id == other.id
-    }
-  }
-
-  impl Eq for Name {
-    // empty
   }
 
   #[derive(Debug)]
@@ -224,6 +206,7 @@ pub mod ir {
 
   #[derive(Debug)]
   pub struct Binary {
+    pub ty: ty::Ty,
     pub operand: Name,
     pub left: Box<Expr>,
     pub right: Box<Expr>,
@@ -231,17 +214,20 @@ pub mod ir {
 
   #[derive(Debug)]
   pub struct Unary {
+    pub ty: ty::Ty,
     pub operand: Name,
     pub right: Box<Expr>,
   }
 
   #[derive(Debug)]
   pub struct Integer {
+    pub ty: ty::Ty,
     pub repr: String,
   }
 
   #[derive(Debug)]
   pub struct Float {
+    pub ty: ty::Ty,
     pub repr: String,
   }
 
@@ -253,5 +239,18 @@ pub mod ir {
     Name(Name),
     Integer(Integer),
     Float(Float),
+  }
+
+  impl ty::AsTy for Expr {
+    fn as_ty(&self) -> &ty::Ty {
+      match self {
+        Expr::Let(e) => e.body.as_ty(),
+        Expr::Binary(e) => &e.ty,
+        Expr::Unary(e) => &e.ty,
+        Expr::Name(e) => &e.ty,
+        Expr::Integer(e) => &e.ty,
+        Expr::Float(e) => &e.ty,
+      }
+    }
   }
 }

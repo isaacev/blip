@@ -1,4 +1,6 @@
+use super::doc;
 use std::collections::HashMap;
+use std::fmt;
 
 type Byte = u8;
 type Bytes = Vec<Byte>;
@@ -74,12 +76,78 @@ impl Encode for Module {
   }
 }
 
+impl doc::ToDoc for Module {
+  fn to_doc(&self) -> doc::Doc {
+    let mut d = doc::Doc::new();
+
+    d.write("(module");
+    d.increment_indent();
+
+    for (idx, ty) in self.type_section.types.iter().enumerate() {
+      d.newline();
+      d.indent();
+      d.write("(type ");
+      d.write(format!("(;{};)", idx));
+      d.space();
+      d.then(ty);
+    }
+
+    for (func_idx, (type_idx, code)) in self
+      .func_section
+      .0
+      .iter()
+      .zip(self.code_section.0.iter())
+      .enumerate()
+    {
+      d.newline();
+      d.indent();
+      d.write(format!("(func (;{};) (type {})", func_idx, type_idx));
+      d.increment_indent();
+      for local in code.locals.iter() {
+        d.newline();
+        d.indent();
+        d.then(local);
+      }
+      for inst in &code.insts {
+        if let Inst::BlockEnd = inst {
+          continue;
+        }
+
+        d.newline();
+        d.indent();
+        d.then(inst);
+      }
+      d.decrement_indent();
+      d.write(")");
+    }
+
+    if let Some(start) = &self.start {
+      d.newline();
+      d.indent();
+      d.write("(start ");
+      d.write(format!("{}", start));
+      d.write(")");
+    }
+
+    d.decrement_indent();
+    d.write(")");
+
+    d
+  }
+}
+
 #[derive(Debug, Copy, Clone)]
 pub struct TypeIndex(usize);
 
 impl Encode for TypeIndex {
   fn encode(&self) -> Bytes {
     self.0.encode()
+  }
+}
+
+impl fmt::Display for TypeIndex {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    write!(f, "{}", self.0)
   }
 }
 
@@ -123,6 +191,12 @@ pub struct FuncIndex(usize);
 impl Encode for FuncIndex {
   fn encode(&self) -> Bytes {
     self.0.encode()
+  }
+}
+
+impl fmt::Display for FuncIndex {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    write!(f, "{}", self.0)
   }
 }
 
@@ -183,12 +257,30 @@ impl Encode for Local {
   }
 }
 
+impl doc::ToDoc for Local {
+  fn to_doc(&self) -> doc::Doc {
+    let mut d = doc::Doc::new();
+
+    d.write("(local ");
+    d.then(&self.1);
+    d.write(")");
+
+    d
+  }
+}
+
 #[derive(Debug, Copy, Clone)]
 pub struct LocalIndex(usize);
 
 impl Encode for LocalIndex {
   fn encode(&self) -> Bytes {
     self.0.encode()
+  }
+}
+
+impl fmt::Display for LocalIndex {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    write!(f, "{}", self.0)
   }
 }
 
@@ -220,6 +312,24 @@ impl Encode for Inst {
       Inst::LocalGet(idx) => encode!(0x20, idx),
       Inst::LocalSet(idx) => encode!(0x21, idx),
     }
+  }
+}
+
+impl doc::ToDoc for Inst {
+  fn to_doc(&self) -> doc::Doc {
+    let mut d = doc::Doc::new();
+
+    match self {
+      Inst::Drop => d.write("drop"),
+      Inst::I32Const(val) => d.write(format!("i32.const {}", val)),
+      Inst::I32Add => d.write("i32.add"),
+      Inst::I32Mul => d.write("i32.mul"),
+      Inst::LocalGet(idx) => d.write(format!("local.get {}", idx)),
+      Inst::LocalSet(idx) => d.write(format!("local.set {}", idx)),
+      _ => {}
+    }
+
+    d
   }
 }
 
@@ -283,6 +393,35 @@ impl Encode for Type {
   }
 }
 
+impl doc::ToDoc for Type {
+  fn to_doc(&self) -> doc::Doc {
+    let mut d = doc::Doc::new();
+
+    match self {
+      Type::I32 => d.write("i32"),
+      Type::I64 => d.write("i64"),
+      Type::F32 => d.write("f32"),
+      Type::F64 => d.write("f64"),
+      Type::Func(params, rets) => {
+        d.write("(func");
+        for param in params.iter() {
+          d.write(" (param ");
+          d.then(param);
+          d.write(")");
+        }
+        for ret in rets.iter() {
+          d.write(" (results ");
+          d.then(ret);
+          d.write(")");
+        }
+        d.write(")");
+      }
+    }
+
+    d
+  }
+}
+
 impl<T: Encode> Encode for Vec<T> {
   fn encode(&self) -> Bytes {
     let mut bytes: Bytes = vec![];
@@ -299,6 +438,14 @@ pub struct LengthPrefixedVec<T: Encode>(Vec<T>);
 impl<T: Encode> LengthPrefixedVec<T> {
   pub fn new() -> Self {
     Self(vec![])
+  }
+}
+impl<T: Encode> IntoIterator for LengthPrefixedVec<T> {
+  type Item = T;
+  type IntoIter = std::vec::IntoIter<Self::Item>;
+
+  fn into_iter(self) -> Self::IntoIter {
+    self.0.into_iter()
   }
 }
 
