@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { render } from "react-dom";
+import "./styles.css";
 
 const blip = import("../pkg");
 
