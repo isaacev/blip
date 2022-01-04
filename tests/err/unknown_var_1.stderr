@@ -1,0 +1,8 @@
+
+  ERROR: unknown variable
+
+    : ./tests/err/unknown_var_1.blip
+  1 | x
+    | ~
+
+
