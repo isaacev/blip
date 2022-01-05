@@ -1,3 +1,17 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+[class^="cm-theme"] {
+  position: absolute;
+  inset: 0;
+}
+
+a:link,
+a:visited {
+  @apply text-blue-600;
+}
+
+details[open] > summary {
+  @apply mb-4;
+}

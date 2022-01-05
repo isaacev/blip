@@ -1,7 +1,8 @@
 pub mod token {
   use super::super::err::{AsSpan, Span};
+  use serde::Serialize;
 
-  #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+  #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize)]
   pub enum Kind {
     Symbol,
     Word,

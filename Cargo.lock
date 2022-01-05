@@ -127,6 +127,8 @@ name = "wasm"
 version = "0.1.0"
 dependencies = [
  "blip_lang",
+ "serde",
+ "serde_json",
  "wasm-bindgen",
 ]
 

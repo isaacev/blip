@@ -1,5 +1,6 @@
 use super::doc;
 use super::err;
+use super::syntax::token;
 use serde::Serialize;
 
 #[derive(Clone, Serialize)]
@@ -29,13 +30,20 @@ impl doc::ToDoc for Paragraph {
 #[derive(Clone, Serialize)]
 pub struct Region {
   text: String,
-  style: Style,
+  kind: Option<token::Kind>,
 }
 
 #[derive(Clone, Serialize)]
-pub struct Line {
-  line_num: usize,
-  regions: Vec<Region>,
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Line {
+  Source {
+    line_num: usize,
+    regions: Vec<Region>,
+  },
+  Callout {
+    start_column: usize,
+    width: usize,
+  },
 }
 
 #[derive(Clone, Serialize)]
@@ -117,25 +125,43 @@ impl Snippet {
     let mut lines = vec![];
     for (line_num, toks) in visible_lines {
       let mut regions = vec![];
-      let mut text = String::new();
       let mut col = 1;
       for tok in toks {
         // Generate however many spaces were between the prior token and this one.
-        let spaces = " ".repeat(tok.span.start.column - col);
+        let total_spaces = tok.span.start.column - col;
         col = tok.span.end.column;
-        text.push_str(&spaces);
+        if total_spaces > 0 {
+          let text = " ".repeat(total_spaces);
+          regions.push(Region { text, kind: None });
+        }
 
         // Append this token's lexeme.
-        text.push_str(tok.lexeme);
+        let text = tok.lexeme.to_owned();
+        let kind = Some(tok.kind);
+        regions.push(Region { text, kind });
       }
 
-      // TODO: when to attach styles to tokens?
-      regions.push(Region {
-        text,
-        style: Style::None,
-      });
+      lines.push(Line::Source { line_num, regions });
 
-      lines.push(Line { line_num, regions })
+      let line_intersects_callout = span.start.line <= line_num && line_num <= span.end.line;
+      if line_intersects_callout {
+        let start_column = if span.start.line == line_num {
+          span.start.column
+        } else {
+          1
+        };
+
+        let width = if span.start.line == line_num {
+          span.end.column - start_column
+        } else {
+          col
+        };
+
+        lines.push(Line::Callout {
+          start_column,
+          width,
+        });
+      }
     }
 
     let filename = span.start.source.filename.to_owned();
@@ -164,7 +190,13 @@ impl doc::ToDoc for Snippet {
     let gutter_width = self
       .lines
       .iter()
-      .map(|l| l.line_num.to_string().len())
+      .map(|l| {
+        if let Line::Source { line_num, .. } = l {
+          *line_num
+        } else {
+          0
+        }
+      })
       .max()
       .unwrap();
 
@@ -175,46 +207,30 @@ impl doc::ToDoc for Snippet {
     d.newline();
     for line in self.lines.iter() {
       d.indent();
-      d.write(format!("{: >g$} | ", line.line_num, g = gutter_width));
 
-      let mut last_col = 1;
-      for reg in line.regions.iter() {
-        last_col += reg.text.len();
-        d.write(reg.text.to_owned());
-        // TODO: apply region styles
+      match line {
+        Line::Source { line_num, regions } => {
+          d.write(format!("{: >g$} | ", line_num, g = gutter_width));
+          for reg in regions.iter() {
+            d.write(reg.text.to_owned());
+            // TODO: apply region styles
+          }
+          d.newline();
+        }
+        Line::Callout {
+          start_column,
+          width,
+        } => {
+          let underline_offset = " ".repeat(start_column - 1);
+          let underline_text = self.callout.underline.to_string().repeat(*width);
+
+          d.indent();
+          d.write(format!("{: >g$} | ", "", g = gutter_width));
+          d.write(underline_offset);
+          d.write(underline_text);
+          d.newline();
+        }
       }
-      d.newline();
-
-      let line_intersects_callout =
-        self.callout.start_line <= line.line_num && line.line_num <= self.callout.end_line;
-      if line_intersects_callout {
-        let start_col = if self.callout.start_line == line.line_num {
-          self.callout.start_column
-        } else {
-          1
-        };
-
-        let end_col = if self.callout.start_line == line.line_num {
-          self.callout.end_column
-        } else {
-          last_col
-        };
-
-        let underline_offset = " ".repeat(start_col - 1);
-        let underline_text = self
-          .callout
-          .underline
-          .to_string()
-          .repeat(end_col - start_col);
-
-        d.indent();
-        d.write(format!("{: >g$} | ", "", g = gutter_width));
-        d.write(underline_offset);
-        d.write(underline_text);
-        d.newline();
-      }
-
-      // TODO: what if there is a callout?
     }
 
     d
