@@ -224,7 +224,6 @@ impl doc::ToDoc for Snippet {
           let underline_offset = " ".repeat(start_column - 1);
           let underline_text = self.callout.underline.to_string().repeat(*width);
 
-          d.indent();
           d.write(format!("{: >g$} | ", "", g = gutter_width));
           d.write(underline_offset);
           d.write(underline_text);
