@@ -363,6 +363,18 @@ mod parser {
       }
     }
 
+    pub fn next_eof(&mut self) -> diag::Result<()> {
+      if let Some(tok) = self.lexer.next() {
+        Err(
+          diag::ErrorBuilder::from(Span::from(tok.span))
+            .title(format!("expected the end-of-file, found {}", tok.kind))
+            .done(),
+        )
+      } else {
+        Ok(())
+      }
+    }
+
     fn name(&mut self) -> diag::Result<ast::Name<'src>> {
       let name = self.next_kind(Kind::Word)?;
       Ok(ast::Name(name))
@@ -485,5 +497,8 @@ use super::err;
 use super::syntax::ast;
 
 pub fn parse<'src>(source: &'src err::Source<'src>) -> diag::Result<ast::Expr<'src>> {
-  parser::Parser::from(source).expr(parser::LOWEST)
+  let mut parser = parser::Parser::from(source);
+  let expr = parser.expr(parser::LOWEST)?;
+  parser.next_eof()?;
+  Ok(expr)
 }
