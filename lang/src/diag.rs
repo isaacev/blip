@@ -200,7 +200,7 @@ impl doc::ToDoc for Snippet {
       .max()
       .unwrap();
 
-    d.newline_if_not_blank();
+    d.newline();
     d.indent();
     d.write(format!("{: >g$} : ", " ", g = gutter_width));
     d.write(self.filename.to_owned());
@@ -279,11 +279,8 @@ impl doc::ToDoc for Error {
     d.write("ERROR: ");
     d.write(self.title.to_owned());
     d.newline();
-    d.newline();
     for section in &self.sections {
       d.then(section);
-      d.newline_if_not_blank();
-      d.newline();
     }
     d.decrement_indent();
 
