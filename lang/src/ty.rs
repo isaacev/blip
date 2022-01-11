@@ -1,5 +1,6 @@
 use super::diag;
-use super::syntax::{ast, ir};
+use super::ir;
+use super::parser::ast;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::Hash;

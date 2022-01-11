@@ -1,4 +1,4 @@
-use super::syntax::ir;
+use super::ir;
 use super::ty;
 use super::wasm;
 use std::collections::HashMap;

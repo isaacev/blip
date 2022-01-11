@@ -1,6 +1,5 @@
 use super::doc;
 use super::err;
-use super::syntax::token;
 use serde::Serialize;
 
 #[derive(Clone, Serialize)]
@@ -30,7 +29,7 @@ impl doc::ToDoc for Paragraph {
 #[derive(Clone, Serialize)]
 pub struct Region {
   text: String,
-  kind: Option<token::Kind>,
+  kind: Option<super::lexer::tokens::Kind>,
 }
 
 #[derive(Clone, Serialize)]
@@ -66,8 +65,7 @@ pub struct Snippet {
 
 impl Snippet {
   fn new(span: &err::Span<'_>) -> Self {
-    use super::parse::lexer::Lexer;
-    use super::syntax::token::Token;
+    use super::lexer::{tokens::Token, Lexer};
 
     let lines_above = 2;
     let lines_below = 2;
