@@ -247,6 +247,9 @@ def diff(expected, found):
             mode = DiffLine.MODE_FOUND_NOT_EXPECTED
         elif code == "- ":
             mode = DiffLine.MODE_EXPECTED_NOT_FOUND
+        elif code == "? ":
+            # ignore intraline differences
+            continue
 
         diff_lines.append(DiffLine(mode, line))
     return diff_lines
