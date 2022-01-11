@@ -1,0 +1,102 @@
+@tokens {
+  Comment       { "--" ![\n]* }
+  space         { std.whitespace+ }
+  Name          { std.asciiLetter+ }
+  Number        { std.digit+ ("." std.digit*)? }
+  String        { '"' (![\\\n"] | "\\" _)* '"' }
+
+  // operators
+  oper_star     { "*" }
+  oper_plus     { "+" }
+  oper_dash     { "-" }
+  oper_arrow    { "->" }
+
+  @precedence
+    // disambiguate between leading "-" character
+    { Comment
+    , oper_arrow
+    , oper_dash
+    }
+}
+
+@skip
+  { Comment
+  | space
+  }
+
+@top program
+  { expr
+  }
+
+expr
+  { tuple
+  | let_binding
+  | print
+  | if_then
+  | match
+  | lambda
+  | binary_oper
+  | Name
+  | Number
+  | String
+  }
+
+tuple
+  { "(" expr ("," expr)* ")"
+  }
+
+let_binding
+  { keyword<"let"> Name "=" expr keyword<"in"> expr
+  }
+
+print
+  { keyword<"print"> expr
+  }
+
+if_then
+  { keyword<"if"> expr keyword<"then"> expr keyword<"else"> expr
+  }
+
+match
+  { keyword<"match"> expr keyword<"in"> pattern_arm+
+  }
+
+pattern_arm
+  { !pattern "|" pattern oper_arrow expr
+  }
+
+pattern
+  { "(" pattern ("," pattern)* ")"
+  | atomic_pattern
+  }
+
+atomic_pattern
+  { Number
+  | String
+  | "_"
+  }
+
+lambda
+  { lambda_prefix Name oper_arrow expr
+  }
+
+lambda_prefix
+  { "\\"
+  | "λ"
+  }
+
+@precedence
+  { product @left
+  , sum     @left
+  , pattern @right
+  }
+
+binary_oper
+  { expr !product oper_star expr
+  | expr !sum     oper_plus expr
+  | expr !sum     oper_dash expr
+  }
+
+keyword<term>
+  { @specialize[@name={term}]<Name, term>
+  }

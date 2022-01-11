@@ -1,5 +1,9 @@
 /target
+/client/target
+/lang/target
+/wasm/target
 /node_modules
 /pkg
-/dist
+/build
+/site/grammar/*.js
 .DS_Store

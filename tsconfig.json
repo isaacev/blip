@@ -1,15 +1,22 @@
 {
+  "include": ["site"],
   "compilerOptions": {
     "strict": true,
-    "outDir": "./dist/",
-    "noImplicitAny": true,
     "module": "esnext",
-    "target": "es5",
+    "target": "es2020",
     "jsx": "react-jsx",
     "allowJs": true,
     "moduleResolution": "node",
-    "esModuleInterop": true,
+    "baseUrl": "./",
+    "paths": {
+      "wasm-compiler": ["./pkg"]
+    },
+    "noEmit": true,
     "skipLibCheck": true,
-    "sourceMap": true
+    "types": ["snowpack-env"],
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    "importsNotUsedAsValues": "error"
   }
 }
