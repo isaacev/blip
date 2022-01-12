@@ -2,7 +2,7 @@
 
 from os import listdir, remove
 from os.path import isfile, isdir, join, splitext, exists
-from sys import exit
+from sys import exit, stdout
 from subprocess import run
 from difflib import Differ
 from argparse import ArgumentParser
@@ -16,7 +16,10 @@ COLOR_RESET = "\033[0m"
 
 
 def apply_ansi_color(str, color):
-    return f"{color}{str}{COLOR_RESET}"
+    if stdout.isatty():
+        return f"{color}{str}{COLOR_RESET}"
+    else:
+        return str
 
 
 class Test:
