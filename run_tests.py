@@ -1,11 +1,10 @@
 #!/usr/local/bin/python3
 
-from os import listdir
-from os.path import isfile, isdir, join, split, splitext
-from random import getrandbits
+from os import listdir, remove
+from os.path import isfile, isdir, join, splitext, exists
 from subprocess import run
-from sys import argv
 from difflib import Differ
+from argparse import ArgumentParser
 
 DEFAULT_TEST_DIR = "./tests"
 
@@ -28,6 +27,10 @@ class Test:
 
     def __repr__(self):
         return self.name
+
+    def to_filepath_using_extension(self, ext):
+        source_ext = ".blip"
+        return self.paths[source_ext][: -len(source_ext)] + ext
 
 
 class Reporter:
@@ -196,8 +199,10 @@ class PassedTest:
 
 
 class FailedTest:
-    def __init__(self, test, stdout_diff, stderr_diff):
+    def __init__(self, test, stdout_found, stderr_found, stdout_diff, stderr_diff):
         self.test = test
+        self.stdout_found = stdout_found
+        self.stderr_found = stderr_found
         self.stdout_diff = stdout_diff
         self.stderr_diff = stderr_diff
 
@@ -265,12 +270,12 @@ def run_test(test):
     stdout_found = output.stdout.split("\n")
     stderr_found = output.stderr.split("\n")
 
-    stdout_expected = ['']
+    stdout_expected = [""]
     if ".stdout" in test.paths:
         with open(test.paths[".stdout"], "r") as stdout_file:
             stdout_expected = stdout_file.read().split("\n")
 
-    stderr_expected = ['']
+    stderr_expected = [""]
     if ".stderr" in test.paths:
         with open(test.paths[".stderr"], "r") as stderr_file:
             stderr_expected = stderr_file.read().split("\n")
@@ -280,19 +285,72 @@ def run_test(test):
     else:
         stdout_diff = diff(stdout_expected, stdout_found)
         stderr_diff = diff(stderr_expected, stderr_found)
-        return FailedTest(test, stdout_diff, stderr_diff)
+        return FailedTest(test, stdout_found, stderr_found, stdout_diff, stderr_diff)
+
+
+def bless(result):
+    if isinstance(result, FailedTest):
+        bless_extension(
+            result.test.to_filepath_using_extension(".stdout"), result.stdout_found
+        )
+        bless_extension(
+            result.test.to_filepath_using_extension(".stderr"), result.stderr_found
+        )
+
+        # bless stdout output
+        # with open(result.test.paths[".stdout"], "w") as stdout_file:
+        #     stdout_file.write(result.stdout_found)
+
+        # bless stderr output
+        # with open(result.test.paths[".stderr"], "w") as stderr_file:
+        #     stderr_file.write(result.stderr_found)
+
+        return PassedTest(result.test)
+
+    return result
+
+
+def bless_extension(filepath, blessed_lines):
+    file_already_exists = exists(filepath)
+    has_blessed_lines = blessed_lines != [] and blessed_lines != [""]
+
+    if file_already_exists and not has_blessed_lines:
+        # Handles the case:
+        # - The file exists but is no longer needed for the test
+        remove(filepath)
+    elif has_blessed_lines:
+        # Handles the cases:
+        # - The file exists but the blessed contents are different
+        # - The file doesn't exist yet but is now needed for the test
+        with open(filepath, "w") as file:
+            file.write("\n".join(blessed_lines))
 
 
 def main():
-    run(["cargo", "build", "--bin", "client"], text=True, capture_output=True, check=True)
+    grammar = ArgumentParser(description="Run compiler tests")
+    grammar.add_argument(
+        "--bless",
+        action="store_true",
+        help="Update any output files for failing tests",
+    )
+    grammar.add_argument("filter", nargs="?", default="")
+    args = grammar.parse_args()
 
-    prefix = argv[1] if len(argv) > 1 else ""
+    run(
+        ["cargo", "build", "--bin", "client"],
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
     all_tests = find_tests()
     reporter = ShortReporter(len(all_tests))
     reporter.start()
     for test in all_tests:
-        if test.name.startswith(prefix):
+        if test.name.startswith(args.filter):
             result = run_test(test)
+            if args.bless and isinstance(result, FailedTest):
+                result = bless(result)
             reporter.report(result)
         else:
             reporter.report(SkippedTest(test))
