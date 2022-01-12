@@ -2,6 +2,7 @@
 
 from os import listdir, remove
 from os.path import isfile, isdir, join, splitext, exists
+from sys import exit
 from subprocess import run
 from difflib import Differ
 from argparse import ArgumentParser
@@ -355,6 +356,8 @@ def main():
         else:
             reporter.report(SkippedTest(test))
     reporter.finish()
+    exit_code = 0 if len(reporter.failed_results) == 0 else 1
+    exit(exit_code)
 
 
 if __name__ == "__main__":
