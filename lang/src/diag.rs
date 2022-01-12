@@ -16,17 +16,6 @@ pub struct Span {
 }
 
 #[derive(Clone, Serialize)]
-pub struct Paragraph {
-  spans: Vec<Span>,
-}
-
-impl Into<Report> for &Paragraph {
-  fn into(self) -> Report {
-    todo!()
-  }
-}
-
-#[derive(Clone, Serialize)]
 pub struct Region {
   text: String,
   kind: Option<super::lexer::tokens::Kind>,
@@ -234,14 +223,12 @@ impl Into<Report> for &Snippet {
 #[derive(Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Section {
-  Paragraph(Paragraph),
   Snippet(Snippet),
 }
 
 impl Into<Report> for &Section {
   fn into(self) -> Report {
     match self {
-      Section::Paragraph(s) => s.into(),
       Section::Snippet(s) => s.into(),
     }
   }
@@ -295,11 +282,6 @@ impl ErrorBuilder {
 
   pub fn title<S: AsRef<str>>(&mut self, title: S) -> &mut Self {
     self.title = Some(title.as_ref().to_owned());
-    self
-  }
-
-  pub fn paragraph(&mut self, spans: Vec<Span>) -> &mut Self {
-    self.sections.push(Section::Paragraph(Paragraph { spans }));
     self
   }
 
