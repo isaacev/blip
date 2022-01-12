@@ -1,4 +1,4 @@
-use blip_lang::doc::ToDoc;
+use blip_lang::aux::report::Report;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
@@ -16,9 +16,8 @@ pub fn compile_for_js(contents: &str) -> JsValue {
   };
 
   let output = blip_lang::compile(&src).map(|wasm_module| {
-    let mut text = String::new();
-    wasm_module.to_doc().eval(&mut text);
-    text
+    let report: Report = (&wasm_module).into();
+    report.to_string()
   });
 
   let normalized = match output {

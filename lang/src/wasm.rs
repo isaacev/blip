@@ -1,4 +1,4 @@
-use super::doc;
+use super::aux::report::{report, Report};
 use std::collections::HashMap;
 use std::fmt;
 
@@ -80,63 +80,69 @@ impl Encode for Module {
   }
 }
 
-impl doc::ToDoc for Module {
-  fn to_doc(&self) -> doc::Doc {
-    let mut d = doc::Doc::new();
-
-    d.write("(module");
-    d.increment_indent();
-
-    for (idx, ty) in self.type_section.types.iter().enumerate() {
-      d.newline();
-      d.indent();
-      d.write("(type ");
-      d.write(format!("(;{};)", idx));
-      d.space();
-      d.then(ty);
-    }
-
-    for (func_idx, (type_idx, code)) in self
+impl Into<Report> for &Module {
+  fn into(self) -> Report {
+    let ty_iter = self.type_section.types.iter().enumerate();
+    let fn_iter = self
       .func_section
       .0
       .iter()
       .zip(self.code_section.0.iter())
-      .enumerate()
-    {
-      d.newline();
-      d.indent();
-      d.write(format!("(func (;{};) (type {})", func_idx, type_idx));
-      d.increment_indent();
-      for local in code.locals.iter() {
-        d.newline();
-        d.indent();
-        d.then(local);
-      }
-      for inst in &code.insts {
-        if let Inst::BlockEnd = inst {
-          continue;
+      .enumerate();
+
+    report! {
+      paren_left
+      write("module")
+      increment_indent
+      for_each(ty_iter, { |(idx, ty)|
+        report! {
+          newline
+          indent
+          paren_left
+          write("type")
+          space
+          write(format!("(;{};)", idx))
+          space
+          then_from(ty)
+          paren_right
         }
-
-        d.newline();
-        d.indent();
-        d.then(inst);
-      }
-      d.decrement_indent();
-      d.write(")");
+      })
+      for_each(fn_iter, { |(func_idx, (type_idx, code))|
+        report! {
+          newline
+          indent
+          paren_left
+          write(format!("func (;{};) (type {})", func_idx, type_idx))
+          increment_indent
+          for_each(code.locals.iter(), {|local| report! {
+            newline
+            indent
+            then_from(local)
+          }})
+          for_each(code
+          .insts
+          .iter()
+          .filter(|i| !matches!(i, Inst::BlockEnd)), {|inst| report! {
+            newline
+            indent
+            then_from(inst)
+          }})
+          decrement_indent
+          paren_right
+          if_some(&self.start, {|start| report! {
+            newline
+            indent
+            paren_left
+            write("start")
+            space
+            write(format!("{}", start))
+            paren_right
+          }})
+        }
+      })
+      decrement_indent
+      paren_right
     }
-
-    if let Some(start) = &self.start {
-      d.newline();
-      d.indent();
-      d.write("(start ");
-      d.write(format!("{}", start));
-      d.write(")");
-    }
-
-    d.decrement_indent();
-    d.write(")");
-
-    d
   }
 }
 
@@ -261,15 +267,15 @@ impl Encode for Local {
   }
 }
 
-impl doc::ToDoc for Local {
-  fn to_doc(&self) -> doc::Doc {
-    let mut d = doc::Doc::new();
-
-    d.write("(local ");
-    d.then(&self.1);
-    d.write(")");
-
-    d
+impl Into<Report> for &Local {
+  fn into(self) -> Report {
+    report! {
+      paren_left
+      write("local")
+      space
+      then_from(&self.1)
+      paren_right
+    }
   }
 }
 
@@ -319,21 +325,17 @@ impl Encode for Inst {
   }
 }
 
-impl doc::ToDoc for Inst {
-  fn to_doc(&self) -> doc::Doc {
-    let mut d = doc::Doc::new();
-
+impl Into<Report> for &Inst {
+  fn into(self) -> Report {
     match self {
-      Inst::Drop => d.write("drop"),
-      Inst::I32Const(val) => d.write(format!("i32.const {}", val)),
-      Inst::I32Add => d.write("i32.add"),
-      Inst::I32Mul => d.write("i32.mul"),
-      Inst::LocalGet(idx) => d.write(format!("local.get {}", idx)),
-      Inst::LocalSet(idx) => d.write(format!("local.set {}", idx)),
-      _ => {}
+      Inst::BlockEnd => report!(write("end")),
+      Inst::Drop => report!(write("drop")),
+      Inst::I32Const(val) => report!(write(format!("i32.const {}", val))),
+      Inst::I32Add => report!(write("i32.add")),
+      Inst::I32Mul => report!(write("i32.mul")),
+      Inst::LocalGet(idx) => report!(write(format!("local.get {}", idx))),
+      Inst::LocalSet(idx) => report!(write(format!("local.set {}", idx))),
     }
-
-    d
   }
 }
 
@@ -381,7 +383,6 @@ impl Encode for Code {
   }
 }
 
-#[allow(dead_code)]
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum Type {
   I32,
@@ -403,32 +404,33 @@ impl Encode for Type {
   }
 }
 
-impl doc::ToDoc for Type {
-  fn to_doc(&self) -> doc::Doc {
-    let mut d = doc::Doc::new();
-
+impl Into<Report> for &Type {
+  fn into(self) -> Report {
     match self {
-      Type::I32 => d.write("i32"),
-      Type::I64 => d.write("i64"),
-      Type::F32 => d.write("f32"),
-      Type::F64 => d.write("f64"),
-      Type::Func(params, rets) => {
-        d.write("(func");
-        for param in params.iter() {
-          d.write(" (param ");
-          d.then(param);
-          d.write(")");
-        }
-        for ret in rets.iter() {
-          d.write(" (results ");
-          d.then(ret);
-          d.write(")");
-        }
-        d.write(")");
-      }
+      Type::I32 => report!(write("i32")),
+      Type::I64 => report!(write("i64")),
+      Type::F32 => report!(write("f32")),
+      Type::F64 => report!(write("f64")),
+      Type::Func(params, rets) => report! {
+        paren_left
+        write("func")
+        for_each(params.iter(), |param| report! {
+          paren_left
+          write("param")
+          space
+          then_from(param)
+          paren_right
+        })
+        for_each(rets.iter(), |ret| report! {
+          paren_left
+          write("results")
+          space
+          then_from(ret)
+          paren_right
+        })
+        paren_right
+      },
     }
-
-    d
   }
 }
 

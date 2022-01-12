@@ -1,8 +1,6 @@
-use super::super::doc;
-use super::super::doc::ToDoc;
+use super::super::aux::report::{report, Report};
 use super::super::err::{Point, Span};
 use super::super::lexer::tokens::Token;
-use std::fmt;
 
 pub enum Expr<'src> {
   Let(Let<'src>),
@@ -28,10 +26,17 @@ impl<'src> Expr<'src> {
   }
 }
 
-impl fmt::Display for Expr<'_> {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    let s: String = self.to_doc().into();
-    write!(f, "{}", s)
+impl Into<Report> for &Expr<'_> {
+  fn into(self) -> Report {
+    match self {
+      Expr::Let(e) => e.into(),
+      Expr::Paren(e) => e.into(),
+      Expr::Unary(e) => e.into(),
+      Expr::Binary(e) => e.into(),
+      Expr::Name(e) => e.into(),
+      Expr::Integer(e) => e.into(),
+      Expr::Float(e) => e.into(),
+    }
   }
 }
 
@@ -42,14 +47,56 @@ pub struct Let<'src> {
   pub body: Box<Expr<'src>>,
 }
 
+impl Into<Report> for &Let<'_> {
+  fn into(self) -> Report {
+    report! {
+      paren_left
+      write("let")
+      newline_if_not_blank
+      increment_indent
+      indent
+      paren_left
+      write("define")
+      space
+      then_from(&self.name)
+      space
+      then_from(&*self.binding)
+      paren_right
+      newline
+      indent
+      then_from(&*self.body)
+      decrement_indent
+      paren_right
+    }
+  }
+}
+
 pub struct Paren<'src> {
   pub span: Span<'src>,
   pub expr: Box<Expr<'src>>,
 }
 
+impl Into<Report> for &Paren<'_> {
+  fn into(self) -> Report {
+    (&*self.expr).into()
+  }
+}
+
 pub struct Unary<'src> {
   pub operand: Token<'src>,
   pub right: Box<Expr<'src>>,
+}
+
+impl Into<Report> for &Unary<'_> {
+  fn into(self) -> Report {
+    report! {
+      paren_left
+      write(self.operand.lexeme)
+      space
+      then_from(&*self.right)
+      paren_right
+    }
+  }
 }
 
 pub struct Binary<'src> {
@@ -58,73 +105,44 @@ pub struct Binary<'src> {
   pub right: Box<Expr<'src>>,
 }
 
-pub struct Name<'src>(pub Token<'src>);
-
-pub struct Integer<'src>(pub Token<'src>);
-
-pub struct Float<'src>(pub Token<'src>);
-
-impl doc::ToDoc for Expr<'_> {
-  fn to_doc(&self) -> doc::Doc {
-    match self {
-      Expr::Let(let_) => {
-        let mut d = doc::Doc::new();
-        d.write("(let");
-        d.newline_if_not_blank();
-        d.increment_indent();
-        d.indent();
-        d.write("(define ");
-        d.then(&let_.name);
-        d.space();
-        d.then(&*let_.binding);
-        d.write(")");
-        d.newline_if_not_blank();
-        d.indent();
-        d.then(&*let_.body);
-        d.decrement_indent();
-        d.write(")");
-        d
-      }
-      Expr::Paren(paren) => (&*paren.expr).to_doc(),
-      Expr::Unary(unary) => {
-        let mut d = doc::Doc::new();
-        d.write("(");
-        d.write(unary.operand.lexeme);
-        d.space();
-        d.then(&*unary.right);
-        d.write(")");
-        d
-      }
-      Expr::Binary(binary) => {
-        let mut d = doc::Doc::new();
-        d.write("(");
-        d.write(binary.operand.lexeme);
-        d.space();
-        d.then(&*binary.left);
-        d.space();
-        d.then(&*binary.right);
-        d.write(")");
-        d
-      }
-      Expr::Name(name) => name.to_doc(),
-      Expr::Integer(integer) => {
-        let mut d = doc::Doc::new();
-        d.write(integer.0.lexeme);
-        d
-      }
-      Expr::Float(float) => {
-        let mut d = doc::Doc::new();
-        d.write(float.0.lexeme);
-        d
-      }
+impl Into<Report> for &Binary<'_> {
+  fn into(self) -> Report {
+    report! {
+      paren_left
+      write(self.operand.lexeme)
+      space
+      then_from(&*self.left)
+      space
+      then_from(&*self.right)
+      paren_right
     }
   }
 }
 
-impl doc::ToDoc for Name<'_> {
-  fn to_doc(&self) -> doc::Doc {
-    let mut d = doc::Doc::new();
-    d.write(self.0.lexeme);
-    d
+pub struct Name<'src>(pub Token<'src>);
+
+impl Into<Report> for &Name<'_> {
+  fn into(self) -> Report {
+    report!(write(self.0.lexeme))
+  }
+}
+
+pub struct Integer<'src>(pub Token<'src>);
+
+impl Into<Report> for &Integer<'_> {
+  fn into(self) -> Report {
+    report! {
+      write(self.0.lexeme)
+    }
+  }
+}
+
+pub struct Float<'src>(pub Token<'src>);
+
+impl Into<Report> for &Float<'_> {
+  fn into(self) -> Report {
+    report! {
+      write(self.0.lexeme)
+    }
   }
 }

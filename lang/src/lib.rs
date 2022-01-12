@@ -1,6 +1,6 @@
+pub mod aux;
 pub mod codegen;
 pub mod diag;
-pub mod doc;
 pub mod err;
 pub mod ir;
 pub mod lexer;

@@ -1,36 +1,31 @@
-use blip_lang::doc::ToDoc;
+use blip_lang::aux::report::Report;
 use blip_lang::*;
 
-fn terminate<D: ToDoc>(code: i32, d: D) -> ! {
-    let mut text = String::new();
-    d.to_doc().eval(&mut text);
-    if code == 0 {
-        println!("{}", text);
-    } else {
-        eprintln!("{}", text);
-    }
+fn terminate<R: Into<Report>>(exit_code: i32, reportable: R) -> ! {
+  let report: Report = reportable.into();
+  if exit_code == 0 {
+    println!("{}", report);
+  } else {
+    eprintln!("{}", report);
+  }
 
-    std::process::exit(code);
+  std::process::exit(exit_code);
 }
 
 pub fn main() {
-    if let Some(ref filename) = std::env::args().nth(1) {
-        if let Ok(ref contents) = std::fs::read_to_string(filename) {
-            let src = err::Source { filename, contents };
-            match compile(&src) {
-                Err(err) => terminate(1, err),
-                Ok(wasm) => terminate(0, wasm),
-            }
-        } else {
-            terminate(
-                1,
-                blip_lang::diag::ErrorBuilder::new("unable to read file").done(),
-            );
-        }
+  if let Some(ref filename) = std::env::args().nth(1) {
+    if let Ok(ref contents) = std::fs::read_to_string(filename) {
+      let src = err::Source { filename, contents };
+      match compile(&src) {
+        Err(err) => terminate(1, &err),
+        Ok(wasm) => terminate(0, &wasm),
+      }
     } else {
-        terminate(
-            1,
-            blip_lang::diag::ErrorBuilder::new("no input file").done(),
-        );
+      let err = blip_lang::diag::ErrorBuilder::new("unable to read file").done();
+      terminate(1, &err);
     }
+  } else {
+    let err = blip_lang::diag::ErrorBuilder::new("no input file").done();
+    terminate(1, &err);
+  }
 }

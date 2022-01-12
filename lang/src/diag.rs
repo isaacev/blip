@@ -1,4 +1,4 @@
-use super::doc;
+use super::aux::report::{report, Report};
 use super::err;
 use serde::Serialize;
 
@@ -20,8 +20,8 @@ pub struct Paragraph {
   spans: Vec<Span>,
 }
 
-impl doc::ToDoc for Paragraph {
-  fn to_doc(&self) -> doc::Doc {
+impl Into<Report> for &Paragraph {
+  fn into(self) -> Report {
     todo!()
   }
 }
@@ -182,9 +182,8 @@ impl Snippet {
   }
 }
 
-impl doc::ToDoc for Snippet {
-  fn to_doc(&self) -> doc::Doc {
-    let mut d = doc::Doc::new();
+impl Into<Report> for &Snippet {
+  fn into(self) -> Report {
     let gutter_width = self
       .lines
       .iter()
@@ -198,39 +197,37 @@ impl doc::ToDoc for Snippet {
       .max()
       .unwrap();
 
-    d.newline();
-    d.indent();
-    d.write(format!("{: >g$} : ", " ", g = gutter_width));
-    d.write(self.filename.to_owned());
-    d.newline();
-    for line in self.lines.iter() {
-      d.indent();
+    report! {
+      newline
+      indent
+      write(format!("{: >g$} : ", " ", g = gutter_width))
+      write(&self.filename)
+      newline
+      for_each(self.lines.iter(), { |line|
+        match line {
+          Line::Source { line_num, regions } => report!{
+            indent
+            write(format!("{: >g$} | ", line_num, g = gutter_width))
+            for_each(regions.iter(), { |reg|
+              report!(write(&reg.text))
+            })
+            newline
+          },
+          Line::Callout { start_column, width } => {
+            let underline_offset = " ".repeat(start_column - 1);
+            let underline_text = self.callout.underline.to_string().repeat(*width);
 
-      match line {
-        Line::Source { line_num, regions } => {
-          d.write(format!("{: >g$} | ", line_num, g = gutter_width));
-          for reg in regions.iter() {
-            d.write(reg.text.to_owned());
-            // TODO: apply region styles
+            report! {
+              indent
+              write(format!("{: >g$} | ", "", g = gutter_width))
+              write(underline_offset)
+              write(underline_text)
+              newline
+            }
           }
-          d.newline();
         }
-        Line::Callout {
-          start_column,
-          width,
-        } => {
-          let underline_offset = " ".repeat(start_column - 1);
-          let underline_text = self.callout.underline.to_string().repeat(*width);
-
-          d.write(format!("{: >g$} | ", "", g = gutter_width));
-          d.write(underline_offset);
-          d.write(underline_text);
-          d.newline();
-        }
-      }
+      })
     }
-
-    d
   }
 }
 
@@ -241,11 +238,11 @@ pub enum Section {
   Snippet(Snippet),
 }
 
-impl doc::ToDoc for Section {
-  fn to_doc(&self) -> doc::Doc {
+impl Into<Report> for &Section {
+  fn into(self) -> Report {
     match self {
-      Section::Paragraph(p) => p.to_doc(),
-      Section::Snippet(s) => s.to_doc(),
+      Section::Paragraph(s) => s.into(),
+      Section::Snippet(s) => s.into(),
     }
   }
 }
@@ -267,22 +264,19 @@ impl From<ErrorBuilder> for Error {
   }
 }
 
-impl doc::ToDoc for Error {
-  fn to_doc(&self) -> doc::Doc {
-    let mut d = doc::Doc::new();
-
-    d.increment_indent();
-    d.newline_if_not_blank();
-    d.indent();
-    d.write("ERROR: ");
-    d.write(self.title.to_owned());
-    d.newline();
-    for section in &self.sections {
-      d.then(section);
+impl Into<Report> for &Error {
+  fn into(self) -> Report {
+    report! {
+      increment_indent
+      newline_if_not_blank
+      indent
+      write("ERROR:")
+      space
+      write(&self.title)
+      newline
+      for_each(self.sections.iter(), |sec| sec.into())
+      decrement_indent
     }
-    d.decrement_indent();
-
-    d
   }
 }
 
