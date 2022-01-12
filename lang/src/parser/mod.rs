@@ -23,8 +23,8 @@ trait ToPrecedence {
 impl ToPrecedence for Token<'_> {
   fn to_prefix_precedence(&self) -> Precedence {
     match (self.kind, self.lexeme) {
-      (Kind::Symbol, "+") => UNARY,
-      (Kind::Symbol, "-") => UNARY,
+      (Kind::Operator, "+") => UNARY,
+      (Kind::Operator, "-") => UNARY,
       (Kind::Word, "print") => UNARY,
       _ => LOWEST,
     }
@@ -32,13 +32,13 @@ impl ToPrecedence for Token<'_> {
 
   fn to_infix_precedence(&self) -> Precedence {
     match (self.kind, self.lexeme) {
-      (Kind::Symbol, "<") => RELATION,
-      (Kind::Symbol, "<=") => RELATION,
-      (Kind::Symbol, ">") => RELATION,
-      (Kind::Symbol, ">=") => RELATION,
-      (Kind::Symbol, "+") => SUM,
-      (Kind::Symbol, "-") => SUM,
-      (Kind::Symbol, "*") => PRODUCT,
+      (Kind::Operator, "<") => RELATION,
+      (Kind::Operator, "<=") => RELATION,
+      (Kind::Operator, ">") => RELATION,
+      (Kind::Operator, ">=") => RELATION,
+      (Kind::Operator, "+") => SUM,
+      (Kind::Operator, "-") => SUM,
+      (Kind::Operator, "*") => PRODUCT,
       _ => LOWEST,
     }
   }
@@ -148,7 +148,7 @@ impl<'src> Parser<'src> {
 
   fn paren_expr(&mut self, left_paren: Token<'src>) -> diag::Result<ast::Paren<'src>> {
     let expr = Box::new(self.expr(LOWEST)?);
-    let right_paren = self.next_token(Kind::Symbol, ")")?;
+    let right_paren = self.next_token(Kind::Delimiter, ")")?;
     Ok(ast::Paren {
       span: Span::new(left_paren.span.start, right_paren.span.end),
       expr,
@@ -157,7 +157,7 @@ impl<'src> Parser<'src> {
 
   fn let_expr(&mut self, keyword: Token<'src>) -> diag::Result<ast::Let<'src>> {
     let name = self.name()?;
-    self.next_token(Kind::Symbol, "=")?;
+    self.next_token(Kind::Operator, "=")?;
     let binding = Box::new(self.expr(LOWEST)?);
     self.next_token(Kind::Word, "in")?;
     let body = self.expr(LOWEST)?;
@@ -223,7 +223,7 @@ impl<'src> Parser<'src> {
   }
 
   fn postfix_expr(&mut self, left: ast::Expr<'src>) -> diag::Result<ast::Expr<'src>> {
-    if let Some(oper) = self.next_if_kind(Kind::Symbol)? {
+    if let Some(oper) = self.next_if_kind(Kind::Operator)? {
       self.binary_expr(left, oper).map(ast::Expr::Binary)
     } else if let Some(tok) = self.next()? {
       Err(self.err_wanted_oper_found_token(tok))

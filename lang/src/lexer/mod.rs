@@ -116,8 +116,10 @@ impl<'src> Lexer<'src> {
   fn read(&mut self) -> Option<Token<'src>> {
     self.skip_while(chars::is_whitespace);
 
-    if self.push_if(Kind::Symbol, chars::is_symbol) {
-      self.next_all_if(chars::is_symbol);
+    if self.push_if(Kind::Delimiter, chars::is_delimiter) {
+      Some(self.pop())
+    } else if self.push_if(Kind::Operator, chars::is_operator) {
+      self.next_all_if(chars::is_operator);
       Some(self.pop())
     } else if self.push_if(Kind::Word, chars::is_start_of_word) {
       self.next_all_if(chars::is_middle_of_word);

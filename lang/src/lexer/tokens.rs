@@ -3,7 +3,8 @@ use serde::Serialize;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize)]
 pub enum Kind {
-  Symbol,
+  Delimiter,
+  Operator,
   Word,
   Integer,
   Float,
@@ -13,7 +14,8 @@ pub enum Kind {
 impl std::fmt::Display for Kind {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     let name = match self {
-      Kind::Symbol => "symbol",
+      Kind::Delimiter => "delimiter",
+      Kind::Operator => "operator",
       Kind::Word => "word",
       Kind::Integer => "integer",
       Kind::Float => "float",

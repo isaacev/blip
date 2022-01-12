@@ -37,11 +37,18 @@ where
   matches!(ch.as_char(), 'a'..='z' | 'A'..='Z' | '_' | '0'..='9')
 }
 
-pub fn is_symbol<C>(ch: &C) -> bool
+pub fn is_delimiter<C>(ch: &C) -> bool
 where
   C: AsChar,
 {
-  matches!(ch.as_char(), '=' | '+' | '-' | '*' | '>' | '<' | '(' | ')')
+  matches!(ch.as_char(), '(' | ')')
+}
+
+pub fn is_operator<C>(ch: &C) -> bool
+where
+  C: AsChar,
+{
+  matches!(ch.as_char(), '=' | '+' | '-' | '*' | '>' | '<')
 }
 
 pub fn is_digit<C>(ch: &C) -> bool
