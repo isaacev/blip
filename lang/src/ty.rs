@@ -3,6 +3,7 @@ use super::ir;
 use super::parser::ast;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fmt;
 use std::hash::Hash;
 use std::rc::Rc;
 
@@ -10,6 +11,12 @@ pub type Name = String;
 
 #[derive(Debug, Hash, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Id(usize);
+
+impl fmt::Display for Id {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    write!(f, "{}", self.0)
+  }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Level(usize);
@@ -31,11 +38,55 @@ pub enum Var {
   Generic(Id),
 }
 
+struct VarNames {
+  next: u32,
+  cache: HashMap<Id, String>,
+}
+
+impl VarNames {
+  fn next_for(&mut self, id: Id) -> String {
+    let i = self.next;
+    self.next += 1;
+    let mut name = String::new();
+    name.push(char::from_u32(97 + (i % 26)).unwrap());
+    if i >= 26 {
+      name.push_str(&(i / 26).to_string());
+    }
+    self.cache.insert(id, name.clone());
+    name
+  }
+
+  fn lookup(&self, id: &Id) -> Option<String> {
+    self.cache.get(id).cloned()
+  }
+}
+
 #[derive(Debug, Clone)]
 pub enum Ty {
   Const(Name),
   Arrow(Vec<Self>, Box<Self>),
   Var(Rc<RefCell<Var>>),
+}
+
+trait WrapWithParens
+where
+  Self: Sized,
+{
+  fn wrap_with_parens(self) -> Self;
+
+  fn wrap_with_parens_if(self, condition: bool) -> Self {
+    if condition {
+      self.wrap_with_parens()
+    } else {
+      self
+    }
+  }
+}
+
+impl WrapWithParens for String {
+  fn wrap_with_parens(self) -> Self {
+    format!("({})", self)
+  }
 }
 
 impl Ty {
@@ -49,6 +100,41 @@ impl Ty {
     }
 
     false
+  }
+
+  fn ty_to_string(&self, is_simple: bool, names: &mut VarNames) -> String {
+    match self {
+      Self::Const(name) => format!("{}", name),
+      Self::Arrow(params, ret) => {
+        let params = if params.len() == 1 {
+          params.get(0).unwrap().ty_to_string(true, names)
+        } else {
+          params
+            .iter()
+            .map(|p| p.ty_to_string(false, names))
+            .collect::<Vec<String>>()
+            .join(", ")
+            .wrap_with_parens()
+        };
+        let ret = ret.ty_to_string(false, names);
+        format!("{} -> {}", params, ret).wrap_with_parens_if(is_simple)
+      }
+      Self::Var(cell) => match &*(cell.borrow()) {
+        Var::Generic(id) => names.lookup(id).unwrap_or_else(|| names.next_for(*id)),
+        Var::Unbound(id, ..) => format!("_{}", id),
+        Var::Link(ty) => ty.ty_to_string(is_simple, names),
+      },
+    }
+  }
+}
+
+impl fmt::Display for Ty {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    let mut names = VarNames {
+      next: 0,
+      cache: HashMap::new(),
+    };
+    write!(f, "{}", self.ty_to_string(false, &mut names))
   }
 }
 
