@@ -94,10 +94,6 @@ impl<'src> Lexer<'src> {
     Token::new(acc.kind, span, lexeme)
   }
 
-  fn swap_kind(&mut self, kind: Kind) {
-    self.acc.as_mut().unwrap().kind = kind;
-  }
-
   fn next_if(&mut self, guard: CharGuard<(Point<'src>, char)>) -> bool {
     if let Some(ref mut acc) = self.acc {
       if let Some((pt, ch)) = self.scanner.next_if(guard) {
@@ -126,12 +122,6 @@ impl<'src> Lexer<'src> {
       Some(self.pop())
     } else if self.push_if(Kind::Integer, chars::is_digit) {
       self.next_all_if(chars::is_digit);
-
-      if self.next_if(chars::is_dot) {
-        self.swap_kind(Kind::Float);
-        self.next_all_if(chars::is_digit);
-      }
-
       Some(self.pop())
     } else if self.push_if(Kind::Error, chars::is_any) {
       Some(self.pop())

@@ -184,10 +184,6 @@ impl<'src> Parser<'src> {
     Ok(ast::Integer(integer))
   }
 
-  fn float_expr(&mut self, float: Token<'src>) -> diag::Result<ast::Float<'src>> {
-    Ok(ast::Float(float))
-  }
-
   fn prefix_expr(&mut self) -> diag::Result<ast::Expr<'src>> {
     if let Some(left) = self.next_if_lexeme("(")? {
       self.paren_expr(left).map(ast::Expr::Paren)
@@ -199,8 +195,6 @@ impl<'src> Parser<'src> {
       self.name_expr(word).map(ast::Expr::Name)
     } else if let Some(integer) = self.next_if_kind(Kind::Integer)? {
       self.integer_expr(integer).map(ast::Expr::Integer)
-    } else if let Some(float) = self.next_if_kind(Kind::Float)? {
-      self.float_expr(float).map(ast::Expr::Float)
     } else if let Some(tok) = self.next()? {
       Err(self.err_wanted_expr_found_token(tok))
     } else {

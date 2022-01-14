@@ -454,10 +454,6 @@ fn lower_expr<'src>(
       ty: Ty::Const("int".into()),
       repr: e.0.lexeme.into(),
     })),
-    ast::Expr::Float(e) => Ok(ir::Expr::Float(ir::Float {
-      ty: Ty::Const("float".into()),
-      repr: e.0.lexeme.into(),
-    })),
   }
 }
 

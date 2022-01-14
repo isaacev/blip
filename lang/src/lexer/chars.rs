@@ -58,13 +58,6 @@ where
   matches!(ch.as_char(), '0'..='9')
 }
 
-pub fn is_dot<C>(ch: &C) -> bool
-where
-  C: AsChar,
-{
-  ch.as_char() == '.'
-}
-
 pub fn is_any<C>(_ch: &C) -> bool
 where
   C: AsChar,

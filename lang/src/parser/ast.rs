@@ -9,7 +9,6 @@ pub enum Expr<'src> {
   Binary(Binary<'src>),
   Name(Name<'src>),
   Integer(Integer<'src>),
-  Float(Float<'src>),
 }
 
 impl<'src> Expr<'src> {
@@ -21,7 +20,6 @@ impl<'src> Expr<'src> {
       Expr::Binary(e) => e.right.end(),
       Expr::Name(e) => e.0.span.end,
       Expr::Integer(e) => e.0.span.end,
-      Expr::Float(e) => e.0.span.end,
     }
   }
 }
@@ -35,7 +33,6 @@ impl Into<Report> for &Expr<'_> {
       Expr::Binary(e) => e.into(),
       Expr::Name(e) => e.into(),
       Expr::Integer(e) => e.into(),
-      Expr::Float(e) => e.into(),
     }
   }
 }
@@ -130,16 +127,6 @@ impl Into<Report> for &Name<'_> {
 pub struct Integer<'src>(pub Token<'src>);
 
 impl Into<Report> for &Integer<'_> {
-  fn into(self) -> Report {
-    report! {
-      write(self.0.lexeme)
-    }
-  }
-}
-
-pub struct Float<'src>(pub Token<'src>);
-
-impl Into<Report> for &Float<'_> {
   fn into(self) -> Report {
     report! {
       write(self.0.lexeme)

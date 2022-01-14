@@ -47,19 +47,12 @@ pub struct Integer {
 }
 
 #[derive(Debug)]
-pub struct Float {
-  pub ty: ty::Ty,
-  pub repr: String,
-}
-
-#[derive(Debug)]
 pub enum Expr {
   Let(Let),
   Binary(Binary),
   Unary(Unary),
   Name(Name),
   Integer(Integer),
-  Float(Float),
 }
 
 impl ty::AsTy for Expr {
@@ -70,7 +63,6 @@ impl ty::AsTy for Expr {
       Expr::Unary(e) => &e.ty,
       Expr::Name(e) => &e.ty,
       Expr::Integer(e) => &e.ty,
-      Expr::Float(e) => &e.ty,
     }
   }
 }

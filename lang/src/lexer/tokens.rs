@@ -7,7 +7,6 @@ pub enum Kind {
   Operator,
   Word,
   Integer,
-  Float,
   Error,
 }
 
@@ -18,7 +17,6 @@ impl std::fmt::Display for Kind {
       Kind::Operator => "operator",
       Kind::Word => "word",
       Kind::Integer => "integer",
-      Kind::Float => "float",
       Kind::Error => "error",
     };
 
