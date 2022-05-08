@@ -1,6 +1,10 @@
-import type { FunctionComponent } from "react";
+import type { FC } from "react";
 
-export const InlineCode: FunctionComponent = (props) => {
+interface Props {
+  children?: React.ReactNode;
+}
+
+export const InlineCode: FC<Props> = (props) => {
   return (
     <code className="p-1 rounded-sm bg-gray-100 font-mono whitespace-pre">
       {props.children}

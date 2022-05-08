@@ -1,11 +1,12 @@
 import { StrictMode } from "react";
-import { render } from "react-dom";
+import { createRoot } from "react-dom/client";
 import { Workspace } from "./components/Workspace";
 
-const root = document.getElementById("root");
-render(
+const container = document.getElementById("root");
+const root = createRoot(container!);
+
+root.render(
   <StrictMode>
     <Workspace />
-  </StrictMode>,
-  root
+  </StrictMode>
 );
