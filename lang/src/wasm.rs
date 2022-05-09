@@ -415,6 +415,7 @@ impl Into<Report> for &Type {
         paren_left
         write("func")
         for_each(params.iter(), |param| report! {
+          space
           paren_left
           write("param")
           space
@@ -422,8 +423,9 @@ impl Into<Report> for &Type {
           paren_right
         })
         for_each(rets.iter(), |ret| report! {
+          space
           paren_left
-          write("results")
+          write("result")
           space
           then_from(ret)
           paren_right
