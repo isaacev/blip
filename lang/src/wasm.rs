@@ -296,6 +296,7 @@ impl fmt::Display for LocalIndex {
 
 #[derive(Debug)]
 pub enum Inst {
+  Nop,
   BlockEnd,
 
   Drop,
@@ -311,6 +312,7 @@ pub enum Inst {
 impl Encode for Inst {
   fn encode(&self) -> Bytes {
     match self {
+      Inst::Nop => encode!(0x01),
       Inst::BlockEnd => encode!(0x0b),
 
       Inst::Drop => encode!(0x1a),
@@ -328,6 +330,7 @@ impl Encode for Inst {
 impl Into<Report> for &Inst {
   fn into(self) -> Report {
     match self {
+      Inst::Nop => report!(write("nop")),
       Inst::BlockEnd => report!(write("end")),
       Inst::Drop => report!(write("drop")),
       Inst::I32Const(val) => report!(write(format!("i32.const {}", val))),
