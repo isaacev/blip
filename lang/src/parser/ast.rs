@@ -24,9 +24,9 @@ impl<'src> Expr<'src> {
   }
 }
 
-impl Into<Report> for &Expr<'_> {
-  fn into(self) -> Report {
-    match self {
+impl From<&Expr<'_>> for Report {
+  fn from(expr: &Expr<'_>) -> Self {
+    match expr {
       Expr::Let(e) => e.into(),
       Expr::Paren(e) => e.into(),
       Expr::Unary(e) => e.into(),
@@ -44,8 +44,8 @@ pub struct Let<'src> {
   pub body: Box<Expr<'src>>,
 }
 
-impl Into<Report> for &Let<'_> {
-  fn into(self) -> Report {
+impl From<&Let<'_>> for Report {
+  fn from(expr: &Let<'_>) -> Self {
     report! {
       paren_left
       write("let")
@@ -55,13 +55,13 @@ impl Into<Report> for &Let<'_> {
       paren_left
       write("define")
       space
-      then_from(&self.name)
+      then_from(&expr.name)
       space
-      then_from(&*self.binding)
+      then_from(&*expr.binding)
       paren_right
       newline
       indent
-      then_from(&*self.body)
+      then_from(&*expr.body)
       decrement_indent
       paren_right
     }
@@ -73,9 +73,9 @@ pub struct Paren<'src> {
   pub expr: Box<Expr<'src>>,
 }
 
-impl Into<Report> for &Paren<'_> {
-  fn into(self) -> Report {
-    (&*self.expr).into()
+impl From<&Paren<'_>> for Report {
+  fn from(expr: &Paren<'_>) -> Self {
+    (&*expr.expr).into()
   }
 }
 
@@ -84,13 +84,13 @@ pub struct Unary<'src> {
   pub right: Box<Expr<'src>>,
 }
 
-impl Into<Report> for &Unary<'_> {
-  fn into(self) -> Report {
+impl From<&Unary<'_>> for Report {
+  fn from(expr: &Unary<'_>) -> Self {
     report! {
       paren_left
-      write(self.operand.lexeme)
+      write(expr.operand.lexeme)
       space
-      then_from(&*self.right)
+      then_from(&*expr.right)
       paren_right
     }
   }
@@ -102,15 +102,15 @@ pub struct Binary<'src> {
   pub right: Box<Expr<'src>>,
 }
 
-impl Into<Report> for &Binary<'_> {
-  fn into(self) -> Report {
+impl From<&Binary<'_>> for Report {
+  fn from(expr: &Binary<'_>) -> Self {
     report! {
       paren_left
-      write(self.operand.lexeme)
+      write(expr.operand.lexeme)
       space
-      then_from(&*self.left)
+      then_from(&*expr.left)
       space
-      then_from(&*self.right)
+      then_from(&*expr.right)
       paren_right
     }
   }
@@ -118,18 +118,16 @@ impl Into<Report> for &Binary<'_> {
 
 pub struct Name<'src>(pub Token<'src>);
 
-impl Into<Report> for &Name<'_> {
-  fn into(self) -> Report {
-    report!(write(self.0.lexeme))
+impl From<&Name<'_>> for Report {
+  fn from(expr: &Name<'_>) -> Self {
+    report!(write(expr.0.lexeme))
   }
 }
 
 pub struct Integer<'src>(pub Token<'src>);
 
-impl Into<Report> for &Integer<'_> {
-  fn into(self) -> Report {
-    report! {
-      write(self.0.lexeme)
-    }
+impl From<&Integer<'_>> for Report {
+  fn from(expr: &Integer<'_>) -> Self {
+    report!(write(expr.0.lexeme))
   }
 }

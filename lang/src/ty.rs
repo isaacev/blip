@@ -104,7 +104,7 @@ impl Ty {
 
   fn ty_to_string(&self, is_simple: bool, names: &mut VarNames) -> String {
     match self {
-      Self::Const(name) => format!("{}", name),
+      Self::Const(name) => name.to_string(),
       Self::Arrow(params, ret) => {
         let params = if params.len() == 1 {
           params.get(0).unwrap().ty_to_string(true, names)

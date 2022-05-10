@@ -80,14 +80,14 @@ impl Encode for Module {
   }
 }
 
-impl Into<Report> for &Module {
-  fn into(self) -> Report {
-    let ty_iter = self.type_section.types.iter().enumerate();
-    let fn_iter = self
+impl From<&Module> for Report {
+  fn from(module: &Module) -> Self {
+    let ty_iter = module.type_section.types.iter().enumerate();
+    let fn_iter = module
       .func_section
       .0
       .iter()
-      .zip(self.code_section.0.iter())
+      .zip(module.code_section.0.iter())
       .enumerate();
 
     report! {
@@ -129,7 +129,7 @@ impl Into<Report> for &Module {
           }})
           decrement_indent
           paren_right
-          if_some(&self.start, {|start| report! {
+          if_some(&module.start, {|start| report! {
             newline
             indent
             paren_left
@@ -267,13 +267,13 @@ impl Encode for Local {
   }
 }
 
-impl Into<Report> for &Local {
-  fn into(self) -> Report {
+impl From<&Local> for Report {
+  fn from(local: &Local) -> Self {
     report! {
       paren_left
       write("local")
       space
-      then_from(&self.1)
+      then_from(&local.1)
       paren_right
     }
   }
@@ -327,9 +327,9 @@ impl Encode for Inst {
   }
 }
 
-impl Into<Report> for &Inst {
-  fn into(self) -> Report {
-    match self {
+impl From<&Inst> for Report {
+  fn from(inst: &Inst) -> Self {
+    match inst {
       Inst::Nop => report!(write("nop")),
       Inst::BlockEnd => report!(write("end")),
       Inst::Drop => report!(write("drop")),
@@ -407,9 +407,9 @@ impl Encode for Type {
   }
 }
 
-impl Into<Report> for &Type {
-  fn into(self) -> Report {
-    match self {
+impl From<&Type> for Report {
+  fn from(ty: &Type) -> Self {
+    match ty {
       Type::I32 => report!(write("i32")),
       Type::I64 => report!(write("i64")),
       Type::F32 => report!(write("f32")),

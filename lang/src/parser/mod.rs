@@ -132,7 +132,7 @@ impl<'src> Parser<'src> {
   fn next_eof(&mut self) -> diag::Result<()> {
     if let Some(tok) = self.lexer.next() {
       Err(
-        diag::ErrorBuilder::from(Span::from(tok.span))
+        diag::ErrorBuilder::from(tok.span)
           .title(format!("expected the end-of-file, found {}", tok.kind))
           .done(),
       )

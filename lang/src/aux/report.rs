@@ -14,6 +14,7 @@ enum Effect {
   WriteNewlineIfLineNotBlank,
 }
 
+#[derive(Default)]
 pub struct Report {
   effects: Vec<Effect>,
 }
@@ -27,10 +28,6 @@ macro_rules! write_util {
 }
 
 impl Report {
-  pub fn new() -> Self {
-    Self { effects: vec![] }
-  }
-
   pub fn increment_indent(&mut self) {
     self.effects.push(Effect::IncrementIndent);
   }
@@ -120,12 +117,12 @@ impl fmt::Display for Report {
         }
         Effect::WriteNewline => {
           on_newline = true;
-          write!(f, "\n")?;
+          writeln!(f)?;
         }
         Effect::WriteNewlineIfLineNotBlank => {
           if !on_newline {
             on_newline = true;
-            write!(f, "\n")?;
+            writeln!(f)?;
           }
         }
       }
@@ -138,7 +135,7 @@ impl fmt::Display for Report {
 macro_rules! report {
   ($($name:ident $( ( $($arg:expr),* ) )? )*) => {{
     #[allow(unused_mut)]
-    let mut r = crate::aux::report::Report::new();
+    let mut r = crate::aux::report::Report::default();
     $(r.$name( $( $($arg),* )? );)*
     r
   }};

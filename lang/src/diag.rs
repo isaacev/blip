@@ -171,9 +171,9 @@ impl Snippet {
   }
 }
 
-impl Into<Report> for &Snippet {
-  fn into(self) -> Report {
-    let gutter_width = self
+impl From<&Snippet> for Report {
+  fn from(snippet: &Snippet) -> Self {
+    let gutter_width = snippet
       .lines
       .iter()
       .map(|l| {
@@ -190,9 +190,9 @@ impl Into<Report> for &Snippet {
       newline
       indent
       write(format!("{: >g$} : ", " ", g = gutter_width))
-      write(&self.filename)
+      write(&snippet.filename)
       newline
-      for_each(self.lines.iter(), { |line|
+      for_each(snippet.lines.iter(), { |line|
         match line {
           Line::Source { line_num, regions } => report!{
             indent
@@ -204,7 +204,7 @@ impl Into<Report> for &Snippet {
           },
           Line::Callout { start_column, width } => {
             let underline_offset = " ".repeat(start_column - 1);
-            let underline_text = self.callout.underline.to_string().repeat(*width);
+            let underline_text = snippet.callout.underline.to_string().repeat(*width);
 
             report! {
               indent
@@ -226,9 +226,9 @@ pub enum Section {
   Snippet(Snippet),
 }
 
-impl Into<Report> for &Section {
-  fn into(self) -> Report {
-    match self {
+impl From<&Section> for Report {
+  fn from(section: &Section) -> Self {
+    match section {
       Section::Snippet(s) => s.into(),
     }
   }
@@ -251,17 +251,17 @@ impl From<ErrorBuilder> for Error {
   }
 }
 
-impl Into<Report> for &Error {
-  fn into(self) -> Report {
+impl From<&Error> for Report {
+  fn from(err: &Error) -> Self {
     report! {
       increment_indent
       newline_if_not_blank
       indent
       write("ERROR:")
       space
-      write(&self.title)
+      write(&err.title)
       newline
-      for_each(self.sections.iter(), |sec| sec.into())
+      for_each(err.sections.iter(), |sec| sec.into())
       decrement_indent
     }
   }
