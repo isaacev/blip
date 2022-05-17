@@ -6,6 +6,7 @@ from sys import exit, stdout
 from subprocess import run
 from difflib import Differ
 from argparse import ArgumentParser
+from wasmtime import Store, Module, Instance, Func, FuncType, ValType
 
 DEFAULT_TEST_DIR = "./tests"
 
@@ -14,6 +15,8 @@ COLOR_BRIGHT_RED = "\033[91m"
 COLOR_WHITE = "\033[37m"
 COLOR_RESET = "\033[0m"
 
+
+EMPTY = [""]
 
 def apply_ansi_color(str, color):
     if stdout.isatty():
@@ -126,17 +129,17 @@ class ShortReporter(Reporter):
                 print(f"{ordinal}) {result.test.name}")
                 ordinal += 1
 
-                if result.stdout_diff:
+                if result.wat_diff:
                     print()
-                    print(f"  STDOUT  {legend}")
-                    for line in result.stdout_diff:
+                    print(f"  WAT  {legend}")
+                    for line in result.wat_diff:
                         print("  ", end="")
                         line.print()
 
-                if result.stderr_diff:
+                if result.err_diff:
                     print()
                     print(f"  STDERR  {legend}")
-                    for line in result.stderr_diff:
+                    for line in result.err_diff:
                         print("  ", end="")
                         line.print()
 
@@ -174,7 +177,7 @@ def find_tests(root=DEFAULT_TEST_DIR):
 
     # For each list of files with the same base name but different file
     # extensions, treat the files as a single test if one of the files has the
-    # extension `.blip`. Other files with the extensions `.stderr` or `.stdout`
+    # extension `.blip`. Other files with the extensions `.stderr` or `.wat`
     # will be considered part of the same test.
     for group_name, group in all_files.items():
         for test_name, files in group.items():
@@ -186,8 +189,8 @@ def find_tests(root=DEFAULT_TEST_DIR):
 
                 if ".stderr" in files:
                     test_paths[".stderr"] = files[".stderr"]
-                if ".stdout" in files:
-                    test_paths[".stdout"] = files[".stdout"]
+                if ".wat" in files:
+                    test_paths[".wat"] = files[".wat"]
 
                 all_tests.append(Test(group_name, test_name, test_paths))
 
@@ -203,12 +206,12 @@ class PassedTest:
 
 
 class FailedTest:
-    def __init__(self, test, stdout_found, stderr_found, stdout_diff, stderr_diff):
+    def __init__(self, test, wat_found, err_found, wat_diff, err_diff):
         self.test = test
-        self.stdout_found = stdout_found
-        self.stderr_found = stderr_found
-        self.stdout_diff = stdout_diff
-        self.stderr_diff = stderr_diff
+        self.wat_found = wat_found
+        self.err_found = err_found
+        self.wat_diff = wat_diff
+        self.err_diff = err_diff
 
 
 class SkippedTest:
@@ -238,9 +241,9 @@ differ = Differ()
 
 
 def diff(expected, found):
-    if expected == [""]:
+    if expected == EMPTY:
         expected = []
-    if found == [""]:
+    if found == EMPTY:
         found = []
 
     if expected == found:
@@ -264,50 +267,71 @@ def diff(expected, found):
     return diff_lines
 
 
-def run_test(test):
+def run_test(test, do_eval=False):
     src_path = test.paths[".blip"]
     output = run(
         ["./target/debug/client", src_path],
         text=True,
         capture_output=True,
     )
-    stdout_found = output.stdout.split("\n")
-    stderr_found = output.stderr.split("\n")
+    wat_found = output.stdout.split("\n")
+    err_found = output.stderr.split("\n")
+    if output != EMPTY and do_eval:
+        out_found = eval_test(test)
+    else:
+        out_found = EMPTY
 
-    stdout_expected = [""]
-    if ".stdout" in test.paths:
-        with open(test.paths[".stdout"], "r") as stdout_file:
-            stdout_expected = stdout_file.read().split("\n")
+    wat_expected = EMPTY
+    if ".wat" in test.paths:
+        with open(test.paths[".wat"], "r") as wat_file:
+            wat_expected = wat_file.read().split("\n")
 
-    stderr_expected = [""]
+    err_expected = EMPTY
     if ".stderr" in test.paths:
-        with open(test.paths[".stderr"], "r") as stderr_file:
-            stderr_expected = stderr_file.read().split("\n")
+        with open(test.paths[".stderr"], "r") as err_file:
+            err_expected = err_file.read().split("\n")
 
-    if stdout_expected == stdout_found and stderr_expected == stderr_found:
+    out_expected = EMPTY
+    if ".stdout" in test.paths and do_eval:
+        with open(test.paths[".stdout"], "r") as out_file:
+            out_expected = out_file.read().split("\n")
+
+    if wat_expected == wat_found and err_expected == err_found and out_expected == out_found:
         return PassedTest(test)
     else:
-        stdout_diff = diff(stdout_expected, stdout_found)
-        stderr_diff = diff(stderr_expected, stderr_found)
-        return FailedTest(test, stdout_found, stderr_found, stdout_diff, stderr_diff)
+        wat_diff = diff(wat_expected, wat_found)
+        err_diff = diff(err_expected, err_found)
+        return FailedTest(test, wat_found, err_found, wat_diff, err_diff)
+
+
+def eval_test(test):
+    output = []
+    def stdlib_print(val):
+        output.append(val)
+
+    store = Store()
+    module = Module(store.engine, """
+(module
+  (import "" "print_i64" (func $print_i64 (param i64)))
+  (func (export "main")
+    i64.const 42
+    call $print_i64))
+""")
+    instance = Instance(store, module, [
+        Func(store, FuncType([ValType.i64()], []), stdlib_print),
+    ])
+    instance.exports(store)["main"](store)
+    return PassedTest(test)
 
 
 def bless(result):
     if isinstance(result, FailedTest):
         bless_extension(
-            result.test.to_filepath_using_extension(".stdout"), result.stdout_found
+            result.test.to_filepath_using_extension(".wat"), result.wat_found
         )
         bless_extension(
-            result.test.to_filepath_using_extension(".stderr"), result.stderr_found
+            result.test.to_filepath_using_extension(".stderr"), result.err_found
         )
-
-        # bless stdout output
-        # with open(result.test.paths[".stdout"], "w") as stdout_file:
-        #     stdout_file.write(result.stdout_found)
-
-        # bless stderr output
-        # with open(result.test.paths[".stderr"], "w") as stderr_file:
-        #     stderr_file.write(result.stderr_found)
 
         return PassedTest(result.test)
 
@@ -337,6 +361,11 @@ def main():
         action="store_true",
         help="Update any output files for failing tests",
     )
+    grammar.add_argument(
+        "--eval",
+        action="store_true",
+        help="Evaluate generated code and check the result",
+    )
     grammar.add_argument("filter", nargs="?", default="")
     args = grammar.parse_args()
 
@@ -352,7 +381,7 @@ def main():
     reporter.start()
     for test in all_tests:
         if test.name.startswith(args.filter):
-            result = run_test(test)
+            result = run_test(test, do_eval=args.eval)
             if args.bless and isinstance(result, FailedTest):
                 result = bless(result)
             reporter.report(result)
@@ -361,6 +390,10 @@ def main():
     reporter.finish()
     exit_code = 0 if len(reporter.failed_results) == 0 else 1
     exit(exit_code)
+
+
+def say_hello():
+    print("Hello from Python!")
 
 
 if __name__ == "__main__":

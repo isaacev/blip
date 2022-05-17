@@ -68,6 +68,30 @@ pub enum Ty {
   Var(Rc<RefCell<Var>>),
 }
 
+pub const INT_NAME: &'static str = "int";
+pub const VOID_NAME: &'static str = "void";
+
+impl Ty {
+  pub fn int() -> Self {
+    Self::Const(INT_NAME.to_owned())
+  }
+
+  pub fn void() -> Self {
+    Self::Const(VOID_NAME.to_owned())
+  }
+
+  pub fn is_const(&self, want: &'static str) -> bool {
+    match &self {
+      Self::Const(name) if name == want => true,
+      Self::Var(cell) => match &*(cell.borrow()) {
+        Var::Link(ty) => ty.is_const(want),
+        _ => false,
+      },
+      _ => false,
+    }
+  }
+}
+
 trait WrapWithParens
 where
   Self: Sized,
@@ -158,25 +182,87 @@ impl Ids {
   }
 }
 
+struct Symbols {
+  next: usize,
+}
+
+impl Symbols {
+  fn _next<T, F: FnOnce(usize) -> T>(&mut self, f: F) -> T {
+    let next = f(self.next);
+    self.next += 1;
+    next
+  }
+
+  fn next_root_namespace<S>(&mut self, name: S) -> ir::NamespaceSymbol
+  where
+    S: ToString,
+  {
+    self._next(|id| ir::NamespaceSymbol {
+      id,
+      name: name.to_string(),
+      parent: None,
+    })
+  }
+
+  // fn next_child_namespace<S>(&mut self, name: S, parent: ir::NamespaceSymbol) -> ir::NamespaceSymbol
+  // where
+  //   S: ToString,
+  // {
+  //   self._next(|id| ir::NamespaceSymbol {
+  //     id,
+  //     name: name.to_string(),
+  //     parent: Some(Box::new(parent)),
+  //   })
+  // }
+
+  fn next_item<S>(&mut self, name: S, parent: ir::NamespaceSymbol) -> ir::TermSymbol
+  where
+    S: ToString,
+  {
+    self._next(|id| ir::TermSymbol::Item {
+      id,
+      name: name.to_string(),
+      parent,
+    })
+  }
+
+  fn next_local<S>(&mut self, name: S) -> ir::TermSymbol
+  where
+    S: ToString,
+  {
+    self._next(|id| ir::TermSymbol::Local {
+      id,
+      name: name.to_string(),
+    })
+  }
+}
+
+type TermTyPair = (ir::TermSymbol, Ty);
+
+#[derive(Clone)]
 struct Env {
-  env: HashMap<Name, Ty>,
+  lexemes: HashMap<String, TermTyPair>,
 }
 
 impl Env {
   fn new() -> Self {
     Self {
-      env: HashMap::new(),
+      lexemes: HashMap::new(),
     }
   }
 
-  fn extend(&self, name: Name, ty: Ty) -> Env {
-    let mut env = self.env.clone();
-    env.insert(name, ty);
-    Self { env }
+  fn extend<S: ToString>(&self, lexeme: S, sym: ir::TermSymbol, ty: Ty) -> Env {
+    let mut lexemes = self.lexemes.clone();
+    lexemes.insert(lexeme.to_string(), (sym, ty));
+    Self { lexemes }
   }
 
-  fn lookup(&self, name: &str) -> Option<&Ty> {
-    self.env.get(name)
+  fn insert<S: ToString>(&mut self, lexeme: S, sym: ir::TermSymbol, ty: Ty) {
+    self.lexemes.insert(lexeme.to_string(), (sym, ty));
+  }
+
+  fn lookup<S: AsRef<str>>(&self, lexeme: S) -> Option<&TermTyPair> {
+    self.lexemes.get(lexeme.as_ref())
   }
 }
 
@@ -339,16 +425,21 @@ pub trait AsTy {
 fn lower_expr<'src>(
   expr: &ast::Expr<'src>,
   ids: &mut Ids,
+  syms: &mut Symbols,
   env: &mut Env,
   level: Level,
 ) -> Result<ir::Expr, diag::Error> {
   match expr {
-    ast::Expr::Paren(e) => lower_expr(&*e.expr, ids, env, level),
+    ast::Expr::Paren(e) => lower_expr(&*e.expr, ids, syms, env, level),
     ast::Expr::Let(e) => {
-      let value_expr = lower_expr(&e.binding, ids, env, level.increment())?;
+      let value_expr = lower_expr(&e.binding, ids, syms, env, level.increment())?;
       let gen_ty = generalize(value_expr.as_ty(), level);
-      let env = &mut env.extend(e.name.0.lexeme.into(), gen_ty);
-      let body_expr = lower_expr(&e.body, ids, env, level)?;
+
+      let lexeme = e.name.0.lexeme;
+      let sym = syms.next_local(lexeme);
+      let env = &mut env.extend(lexeme, sym, gen_ty);
+
+      let body_expr = lower_expr(&e.body, ids, syms, env, level)?;
       Ok(ir::Expr::Let(ir::Let {
         name: ir::Name {
           ty: value_expr.as_ty().clone(),
@@ -358,8 +449,20 @@ fn lower_expr<'src>(
         body: Box::new(body_expr),
       }))
     }
+    ast::Expr::Print(e) => {
+      let arg = lower_expr(&e.arg, ids, syms, env, level)?;
+      if arg.as_ty().is_const(INT_NAME) {
+        Ok(ir::Expr::Print(ir::Print { arg: Box::new(arg) }))
+      } else {
+        Err(
+          diag::ErrorBuilder::from(e.arg.span())
+            .title("non printable value")
+            .done(),
+        )
+      }
+    }
     ast::Expr::Binary(e) => {
-      if let Some(operand_ty) = env.lookup(e.operand.lexeme) {
+      if let Some((_, operand_ty)) = env.lookup(e.operand.lexeme) {
         match match_fun_ty(2, ids, operand_ty) {
           Err(FuncError::NotCallable) => Err(
             diag::ErrorBuilder::from(e.operand.span)
@@ -377,10 +480,10 @@ fn lower_expr<'src>(
               canonical: e.operand.lexeme.to_owned(),
             };
 
-            let left = lower_expr(&*e.left, ids, env, level)?;
+            let left = lower_expr(&*e.left, ids, syms, env, level)?;
             unify(param_tys.get(0).unwrap(), left.as_ty()).ok();
 
-            let right = lower_expr(&*e.right, ids, env, level)?;
+            let right = lower_expr(&*e.right, ids, syms, env, level)?;
             unify(param_tys.get(1).unwrap(), right.as_ty()).ok();
 
             Ok(ir::Expr::Binary(ir::Binary {
@@ -400,7 +503,7 @@ fn lower_expr<'src>(
       }
     }
     ast::Expr::Unary(e) => {
-      if let Some(operand_ty) = env.lookup(e.operand.lexeme) {
+      if let Some((_, operand_ty)) = env.lookup(e.operand.lexeme) {
         match match_fun_ty(1, ids, operand_ty) {
           Err(FuncError::NotCallable) => Err(
             diag::ErrorBuilder::from(e.operand.span)
@@ -418,7 +521,7 @@ fn lower_expr<'src>(
               canonical: e.operand.lexeme.to_owned(),
             };
 
-            let right = lower_expr(&*e.right, ids, env, level)?;
+            let right = lower_expr(&*e.right, ids, syms, env, level)?;
             unify(param_tys.get(1).unwrap(), right.as_ty()).ok();
 
             Ok(ir::Expr::Unary(ir::Unary {
@@ -437,7 +540,7 @@ fn lower_expr<'src>(
       }
     }
     ast::Expr::Name(e) => {
-      if let Some(ty) = env.lookup(e.0.lexeme) {
+      if let Some((_, ty)) = env.lookup(e.0.lexeme) {
         let mut id_var_map = HashMap::new();
         let ty = instantiate(ids, &mut id_var_map, ty, level);
         let canonical = e.0.lexeme.to_owned();
@@ -451,22 +554,86 @@ fn lower_expr<'src>(
       }
     }
     ast::Expr::Integer(e) => Ok(ir::Expr::Integer(ir::Integer {
-      ty: Ty::Const("int".into()),
+      ty: Ty::int(),
       repr: e.0.lexeme.into(),
     })),
   }
 }
 
-pub fn lower(tree: &ast::Expr) -> Result<ir::Expr, diag::Error> {
+fn lower_item<'src>(
+  item: &ast::Item<'src>,
+  ids: &mut Ids,
+  syms: &mut Symbols,
+  env: &mut Env,
+  level: Level,
+) -> Result<ir::Item, diag::Error> {
+  match item {
+    ast::Item::Defun(i) => {
+      let mut body_env = env.clone();
+      let mut param_tys = vec![];
+      let mut param_names = vec![];
+      for param in &i.params {
+        let name = param.0.lexeme;
+        let sym = syms.next_local(name);
+        let ty = ids.new_var(level);
+        body_env.insert(name, sym, ty.clone());
+        param_tys.push(ty.clone());
+        param_names.push(ir::Name {
+          ty,
+          canonical: name.to_owned(),
+        });
+      }
+
+      let body = lower_expr(&i.body, ids, syms, &mut body_env, level)?;
+      let canonical = i.name.0.lexeme.to_owned();
+      let ret_ty = body.as_ty().to_owned();
+      let ty = Ty::Arrow(param_tys, Box::new(ret_ty));
+      let name = ir::Name { ty, canonical };
+      Ok(ir::Item::Defun(ir::Defun {
+        name,
+        params: param_names,
+        body: Box::new(body),
+      }))
+    }
+  }
+}
+
+fn lower_prog<'src>(
+  prog: &ast::Prog<'src>,
+  ids: &mut Ids,
+  syms: &mut Symbols,
+  env: &mut Env,
+  level: Level,
+) -> diag::Result<ir::Prog> {
+  let mut items = vec![];
+  for item in &prog.items {
+    items.push(lower_item(item, ids, syms, env, level)?);
+  }
+  Ok(ir::Prog { items })
+}
+
+fn add_stdlib(syms: &mut Symbols, env: &mut Env) {
+  // primitive types
+  let int = Ty::Const("int".to_owned());
+
+  // stdlib namespace
+  let stdlib_sym = syms.next_root_namespace("stdlib");
+
+  {
+    let name = "+".to_owned();
+    let sym = syms.next_item(&name, stdlib_sym);
+    let ty = Ty::Arrow(vec![int.clone(), int.clone()], Box::new(int));
+    env.lexemes.insert(name, (sym, ty));
+  }
+}
+
+pub fn lower(prog: &ast::Prog) -> Result<ir::Prog, diag::Error> {
   let mut ids = Ids::new();
+  let mut syms = Symbols { next: 0 };
   let mut env = Env::new();
   let level = Level::zero();
 
-  let i = Ty::Const("int".to_owned());
-  env.env.insert(
-    "+".to_owned(),
-    Ty::Arrow(vec![i.clone(), i.clone()], Box::new(i)),
-  );
+  add_stdlib(&mut syms, &mut env);
 
-  lower_expr(tree, &mut ids, &mut env, level)
+  lower_prog(prog, &mut ids, &mut syms, &mut env, level)
 }

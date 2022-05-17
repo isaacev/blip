@@ -16,6 +16,13 @@ impl<'src> AsChar for (Point<'src>, char) {
   }
 }
 
+pub fn is_newline<C>(ch: &C) -> bool
+where
+  C: AsChar,
+{
+  matches!(ch.as_char(), '\n')
+}
+
 pub fn is_whitespace<C>(ch: &C) -> bool
 where
   C: AsChar,

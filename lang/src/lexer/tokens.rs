@@ -28,11 +28,17 @@ pub struct Token<'src> {
   pub kind: Kind,
   pub span: Span<'src>,
   pub lexeme: &'src str,
+  pub is_newline: bool,
 }
 
 impl<'src> Token<'src> {
-  pub fn new(kind: Kind, span: Span<'src>, lexeme: &'src str) -> Token<'src> {
-    Token { kind, span, lexeme }
+  pub fn new(kind: Kind, span: Span<'src>, lexeme: &'src str, is_newline: bool) -> Token<'src> {
+    Token {
+      kind,
+      span,
+      lexeme,
+      is_newline,
+    }
   }
 }
 

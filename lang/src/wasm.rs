@@ -9,42 +9,58 @@ pub trait Encode {
   fn encode(&self) -> Bytes;
 }
 
+macro_rules! encode_section {
+  ($prefix:expr, $members:expr) => {{
+    let mut bytes: Bytes = vec![$prefix];
+    let mut contents = $members.encode();
+    bytes.append(&mut contents.len().encode());
+    bytes.append(&mut contents);
+    bytes
+  }};
+}
+
 macro_rules! encode {
+    ($first:expr $(, $rest:expr)*) => {{
+        let mut bytes: Bytes = $first.encode();
+        $( bytes.append(&mut $rest.encode()); )+
+        bytes
+    }};
+}
+
+macro_rules! encode_with_prefix {
   ($prefix:expr) => {{
     vec![$prefix]
   }};
-  ($prefix:expr, $a:expr) => {{
+  ($prefix:expr $(, $arg:expr)+) => {{
     let mut bytes: Bytes = vec![$prefix];
-    bytes.append(&mut $a.encode());
-    bytes
-  }};
-  ($prefix:expr, $a:expr, $b:expr) => {{
-    let mut bytes: Bytes = vec![$prefix];
-    bytes.append(&mut $a.encode());
-    bytes.append(&mut $b.encode());
+    $( bytes.append(&mut $arg.encode()); )+
     bytes
   }};
 }
 
 pub struct Module {
-  pub start: Option<FuncIndex>,
   pub type_section: TypeSection,
+  pub import_section: ImportSection,
   pub func_section: FuncSection,
+  pub export_section: ExportSection,
+  pub start_section: Option<FuncIndex>,
   pub code_section: CodeSection,
 }
 
 impl Module {
   pub fn new() -> Self {
     Self {
-      start: None,
       type_section: TypeSection::new(),
+      import_section: ImportSection::new(),
       func_section: FuncSection::new(),
+      export_section: ExportSection::new(),
+      start_section: None,
       code_section: CodeSection::new(),
     }
   }
 
   pub fn add_func(&mut self, sig: Type, code: Code) -> FuncIndex {
-    let type_index = self.type_section.append(sig);
+    let type_index = self.type_section.push(sig);
     let func_index = self.func_section.push(type_index);
     self.code_section.push(code);
     func_index
@@ -65,14 +81,11 @@ impl Encode for Module {
     ];
 
     bytes.append(&mut self.type_section.encode());
+    bytes.append(&mut self.import_section.encode());
     bytes.append(&mut self.func_section.encode());
 
-    if let Some(start) = &self.start {
-      let mut contents = start.encode();
-      let mut section = encode!(0x08);
-      section.append(&mut contents.len().encode());
-      section.append(&mut contents);
-      bytes.append(&mut section);
+    if let Some(start_section) = &self.start_section {
+      bytes.append(&mut encode_section!(0x08, start_section));
     }
 
     bytes.append(&mut self.code_section.encode());
@@ -83,6 +96,7 @@ impl Encode for Module {
 impl From<&Module> for Report {
   fn from(module: &Module) -> Self {
     let ty_iter = module.type_section.types.iter().enumerate();
+    let im_iter = module.import_section.0.iter();
     let fn_iter = module
       .func_section
       .0
@@ -104,6 +118,21 @@ impl From<&Module> for Report {
           write(format!("(;{};)", idx))
           space
           then_from(ty)
+          paren_right
+        }
+      })
+      for_each(im_iter, { |im|
+        report! {
+          newline
+          indent
+          paren_left
+          write("import")
+          space
+          write(format!("\"{}\"", im.module))
+          space
+          write(format!("\"{}\"", im.name))
+          space
+          then_from(&im.desc)
           paren_right
         }
       })
@@ -129,20 +158,81 @@ impl From<&Module> for Report {
           }})
           decrement_indent
           paren_right
-          if_some(&module.start, {|start| report! {
-            newline
-            indent
-            paren_left
-            write("start")
-            space
-            write(format!("{}", start))
-            paren_right
-          }})
         }
       })
+      if_some(&module.start_section, {|start| report! {
+        newline
+        indent
+        paren_left
+        write("start")
+        space
+        write(format!("{}", start))
+        paren_right
+      }})
       decrement_indent
       paren_right
     }
+  }
+}
+
+pub struct Import {
+  pub module: String,
+  pub name: String,
+  pub desc: ImportDesc,
+}
+
+impl Encode for Import {
+  fn encode(&self) -> Bytes {
+    let mut bytes = self.module.as_str().encode();
+    bytes.append(&mut self.name.as_str().encode());
+    bytes.append(&mut self.desc.encode());
+    bytes
+  }
+}
+
+pub enum ImportDesc {
+  TypeIndex(TypeIndex),
+}
+
+impl Encode for ImportDesc {
+  fn encode(&self) -> Bytes {
+    match self {
+      Self::TypeIndex(idx) => encode_with_prefix!(0x0, idx),
+    }
+  }
+}
+
+impl From<&ImportDesc> for Report {
+  fn from(desc: &ImportDesc) -> Self {
+    match desc {
+      ImportDesc::TypeIndex(idx) => report!(write(format!("(func {})", idx))),
+    }
+  }
+}
+
+pub struct ImportSection(LengthPrefixedVec<Import>);
+
+impl ImportSection {
+  fn new() -> Self {
+    Self(LengthPrefixedVec::new())
+  }
+
+  pub fn push<S1, S2>(&mut self, module: S1, name: S2, desc: ImportDesc)
+  where
+    S1: ToString,
+    S2: ToString,
+  {
+    self.0.push(Import {
+      module: module.to_string(),
+      name: name.to_string(),
+      desc,
+    });
+  }
+}
+
+impl Encode for ImportSection {
+  fn encode(&self) -> Bytes {
+    encode_section!(0x02, self.0)
   }
 }
 
@@ -174,7 +264,7 @@ impl TypeSection {
     }
   }
 
-  pub fn append(&mut self, ty: Type) -> TypeIndex {
+  pub fn push(&mut self, ty: Type) -> TypeIndex {
     if let Some(cached_id) = self.cache.get(&ty) {
       *cached_id
     } else {
@@ -188,15 +278,18 @@ impl TypeSection {
 
 impl Encode for TypeSection {
   fn encode(&self) -> Bytes {
-    let mut contents = self.types.encode();
-    let mut bytes: Bytes = vec![0x01];
-    bytes.append(&mut contents.len().encode());
-    bytes.append(&mut contents);
-    bytes
+    encode_section!(0x01, self.types)
   }
 }
 
+#[derive(Debug)]
 pub struct FuncIndex(usize);
+
+impl FuncIndex {
+  pub fn new(idx: usize) -> Self {
+    Self(idx)
+  }
+}
 
 impl Encode for FuncIndex {
   fn encode(&self) -> Bytes {
@@ -210,6 +303,8 @@ impl fmt::Display for FuncIndex {
   }
 }
 
+const TOTAL_INTRINSICS: usize = 0;
+
 pub struct FuncSection(LengthPrefixedVec<TypeIndex>);
 
 impl FuncSection {
@@ -218,7 +313,7 @@ impl FuncSection {
   }
 
   fn push(&mut self, index: TypeIndex) -> FuncIndex {
-    let func_index = FuncIndex(self.0.len());
+    let func_index = FuncIndex(self.0.len() + TOTAL_INTRINSICS);
     self.0.push(index);
     func_index
   }
@@ -226,11 +321,38 @@ impl FuncSection {
 
 impl Encode for FuncSection {
   fn encode(&self) -> Bytes {
-    let mut contents = self.0.encode();
-    let mut bytes: Bytes = vec![0x03];
-    bytes.append(&mut contents.len().encode());
-    bytes.append(&mut contents);
-    bytes
+    encode_section!(0x03, self.0)
+  }
+}
+
+pub enum ExportDesc {
+  FuncIndex(FuncIndex),
+}
+
+impl Encode for ExportDesc {
+  fn encode(&self) -> Bytes {
+    match self {
+      Self::FuncIndex(idx) => encode_with_prefix!(0x00, idx),
+    }
+  }
+}
+
+pub struct Export {
+  pub name: String,
+  pub desc: ExportDesc,
+}
+
+impl Encode for Export {
+  fn encode(&self) -> Bytes {
+    encode!(self.name.as_str(), self.desc)
+  }
+}
+
+pub struct ExportSection(LengthPrefixedVec<Export>);
+
+impl ExportSection {
+  fn new() -> Self {
+    Self(LengthPrefixedVec::new())
   }
 }
 
@@ -248,11 +370,7 @@ impl CodeSection {
 
 impl Encode for CodeSection {
   fn encode(&self) -> Bytes {
-    let mut contents = self.0.encode();
-    let mut bytes: Bytes = vec![0x0a];
-    bytes.append(&mut contents.len().encode());
-    bytes.append(&mut contents);
-    bytes
+    encode_section!(0x0a, self.0)
   }
 }
 
@@ -298,6 +416,7 @@ impl fmt::Display for LocalIndex {
 pub enum Inst {
   Nop,
   BlockEnd,
+  Call(FuncIndex),
 
   Drop,
 
@@ -312,17 +431,18 @@ pub enum Inst {
 impl Encode for Inst {
   fn encode(&self) -> Bytes {
     match self {
-      Inst::Nop => encode!(0x01),
-      Inst::BlockEnd => encode!(0x0b),
+      Inst::Nop => encode_with_prefix!(0x01),
+      Inst::BlockEnd => encode_with_prefix!(0x0b),
+      Inst::Call(idx) => encode_with_prefix!(0x10, idx),
 
-      Inst::Drop => encode!(0x1a),
+      Inst::Drop => encode_with_prefix!(0x1a),
 
-      Inst::I32Const(val) => encode!(0x41, val),
-      Inst::I32Add => encode!(0x6a),
-      Inst::I32Mul => encode!(0x6c),
+      Inst::I32Const(val) => encode_with_prefix!(0x41, val),
+      Inst::I32Add => encode_with_prefix!(0x6a),
+      Inst::I32Mul => encode_with_prefix!(0x6c),
 
-      Inst::LocalGet(idx) => encode!(0x20, idx),
-      Inst::LocalSet(idx) => encode!(0x21, idx),
+      Inst::LocalGet(idx) => encode_with_prefix!(0x20, idx),
+      Inst::LocalSet(idx) => encode_with_prefix!(0x21, idx),
     }
   }
 }
@@ -332,6 +452,7 @@ impl From<&Inst> for Report {
     match inst {
       Inst::Nop => report!(write("nop")),
       Inst::BlockEnd => report!(write("end")),
+      Inst::Call(idx) => report!(write(format!("call {}", idx))),
       Inst::Drop => report!(write("drop")),
       Inst::I32Const(val) => report!(write(format!("i32.const {}", val))),
       Inst::I32Add => report!(write("i32.add")),
@@ -377,7 +498,9 @@ impl Encode for Code {
   fn encode(&self) -> Bytes {
     let mut contents: Bytes = vec![];
     contents.append(&mut self.locals.encode());
-    contents.append(&mut self.insts.encode());
+    for inst in &self.insts {
+      contents.append(&mut inst.encode());
+    }
 
     let mut bytes: Bytes = vec![];
     bytes.append(&mut contents.len().encode());
@@ -398,11 +521,11 @@ pub enum Type {
 impl Encode for Type {
   fn encode(&self) -> Bytes {
     match self {
-      Type::I32 => encode!(0x7f),
-      Type::I64 => encode!(0x7e),
-      Type::F32 => encode!(0x7d),
-      Type::F64 => encode!(0x7c),
-      Type::Func(params, returns) => encode!(0x60, params, returns),
+      Type::I32 => encode_with_prefix!(0x7f),
+      Type::I64 => encode_with_prefix!(0x7e),
+      Type::F32 => encode_with_prefix!(0x7d),
+      Type::F64 => encode_with_prefix!(0x7c),
+      Type::Func(params, returns) => encode_with_prefix!(0x60, params, returns),
     }
   }
 }
@@ -439,22 +562,25 @@ impl From<&Type> for Report {
   }
 }
 
-impl<T: Encode> Encode for Vec<T> {
-  fn encode(&self) -> Bytes {
-    let mut bytes: Bytes = vec![];
-    for elem in self {
-      bytes.append(&mut elem.encode());
-    }
-    bytes
-  }
-}
-
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct LengthPrefixedVec<T: Encode>(Vec<T>);
 
 impl<T: Encode> LengthPrefixedVec<T> {
   pub fn new() -> Self {
     Self(vec![])
+  }
+
+  pub fn push(&mut self, value: T) {
+    self.0.push(value);
+  }
+}
+
+impl<T> From<Vec<T>> for LengthPrefixedVec<T>
+where
+  T: Encode,
+{
+  fn from(vector: Vec<T>) -> Self {
+    Self(vector)
   }
 }
 
@@ -491,7 +617,9 @@ impl<T: Encode> Encode for LengthPrefixedVec<T> {
   fn encode(&self) -> Bytes {
     let mut bytes: Bytes = vec![];
     bytes.append(&mut self.0.len().encode());
-    bytes.append(&mut self.0.encode());
+    for elem in &self.0 {
+      bytes.append(&mut elem.encode());
+    }
     bytes
   }
 }
@@ -549,3 +677,9 @@ encode_using_unsigned_leb128!(u32);
 encode_using_unsigned_leb128!(u64);
 encode_using_unsigned_leb128!(u128);
 encode_using_unsigned_leb128!(usize);
+
+impl Encode for &str {
+  fn encode(&self) -> Bytes {
+    self.as_bytes().to_vec()
+  }
+}

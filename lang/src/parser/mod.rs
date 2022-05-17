@@ -49,6 +49,24 @@ struct Parser<'src> {
 }
 
 impl<'src> Parser<'src> {
+  fn err_wanted_item_found_token(&self, found: Token<'src>) -> diag::Error {
+    diag::ErrorBuilder::from(found.span)
+      .title(format!("expected an item, found {}", found.kind))
+      .done()
+  }
+
+  fn err_wanted_item_found_eof(&self) -> diag::Error {
+    diag::ErrorBuilder::from(Span::from(self.lexer.last_read_point))
+      .title("expected an item, found end-of-file")
+      .done()
+  }
+
+  fn err_wanted_item_on_new_line(&self, found: Token<'src>) -> diag::Error {
+    diag::ErrorBuilder::from(found.span)
+      .title(format!("expected the next item to start on a new line"))
+      .done()
+  }
+
   fn err_wanted_expr_found_token(&self, found: Token<'src>) -> diag::Error {
     diag::ErrorBuilder::from(found.span)
       .title(format!("expected an expression, found {}", found.kind))
@@ -129,7 +147,7 @@ impl<'src> Parser<'src> {
     }
   }
 
-  fn next_eof(&mut self) -> diag::Result<()> {
+  fn assert_next_eof(&mut self) -> diag::Result<()> {
     if let Some(tok) = self.lexer.next() {
       Err(
         diag::ErrorBuilder::from(tok.span)
@@ -139,6 +157,10 @@ impl<'src> Parser<'src> {
     } else {
       Ok(())
     }
+  }
+
+  fn tokens_remain(&mut self) -> bool {
+    self.lexer.peek().is_some()
   }
 
   fn name(&mut self) -> diag::Result<ast::Name<'src>> {
@@ -171,9 +193,10 @@ impl<'src> Parser<'src> {
     })
   }
 
-  fn print_expr(&mut self, operand: Token<'src>) -> diag::Result<ast::Unary<'src>> {
-    let right = Box::new(self.expr(UNARY)?);
-    Ok(ast::Unary { operand, right })
+  fn print_expr(&mut self, keyword: Token<'src>) -> diag::Result<ast::Print<'src>> {
+    let arg = Box::new(self.expr(UNARY)?);
+    let span = Span::new(keyword.span.start, arg.end());
+    Ok(ast::Print { span, arg })
   }
 
   fn name_expr(&mut self, word: Token<'src>) -> diag::Result<ast::Name<'src>> {
@@ -190,7 +213,7 @@ impl<'src> Parser<'src> {
     } else if let Some(keyword) = self.next_if_lexeme("let")? {
       self.let_expr(keyword).map(ast::Expr::Let)
     } else if let Some(keyword) = self.next_if_lexeme("print")? {
-      self.print_expr(keyword).map(ast::Expr::Unary)
+      self.print_expr(keyword).map(ast::Expr::Print)
     } else if let Some(word) = self.next_if_kind(Kind::Word)? {
       self.name_expr(word).map(ast::Expr::Name)
     } else if let Some(integer) = self.next_if_kind(Kind::Integer)? {
@@ -234,12 +257,59 @@ impl<'src> Parser<'src> {
       .unwrap_or(LOWEST)
   }
 
+  fn assert_peek_is_start_of_new_line(&mut self) -> diag::Result<()> {
+    let is_start_of_new_line = self.lexer.peek().map(|t| t.is_newline).unwrap_or(false);
+    if !is_start_of_new_line {
+      let found = self.lexer.next().unwrap();
+      Err(self.err_wanted_item_on_new_line(found))
+    } else {
+      Ok(())
+    }
+  }
+
   fn expr(&mut self, threshold: Precedence) -> diag::Result<ast::Expr<'src>> {
     let mut prefix = self.prefix_expr()?;
     while threshold < self.peek_precedence() {
       prefix = self.postfix_expr(prefix)?;
     }
     Ok(prefix)
+  }
+
+  fn item(&mut self) -> diag::Result<ast::Item<'src>> {
+    if let Some(left) = self.next_if_kind(Kind::Word)? {
+      self.defun_item(left).map(ast::Item::Defun)
+    } else if let Some(tok) = self.next()? {
+      Err(self.err_wanted_item_found_token(tok))
+    } else {
+      Err(self.err_wanted_item_found_eof())
+    }
+  }
+
+  fn defun_item(&mut self, left: Token<'src>) -> diag::Result<ast::Defun<'src>> {
+    let name = ast::Name(left);
+    let mut params = vec![];
+    while let Some(param) = self.next_if_kind(Kind::Word)? {
+      params.push(ast::Name(param));
+    }
+    self.next_token(Kind::Operator, "=")?;
+    let body = self.expr(LOWEST)?;
+    Ok(ast::Defun { name, params, body })
+  }
+
+  fn prog(&mut self) -> diag::Result<ast::Prog<'src>> {
+    let mut items = vec![];
+
+    loop {
+      items.push(self.item()?);
+      if self.tokens_remain() {
+        self.assert_peek_is_start_of_new_line()?;
+      } else {
+        self.assert_next_eof()?;
+        break;
+      }
+    }
+
+    Ok(ast::Prog { items })
   }
 }
 
@@ -251,9 +321,6 @@ impl<'src> From<&'src Source<'src>> for Parser<'src> {
   }
 }
 
-pub fn parse<'src>(source: &'src err::Source<'src>) -> diag::Result<ast::Expr<'src>> {
-  let mut parser = Parser::from(source);
-  let expr = parser.expr(LOWEST)?;
-  parser.next_eof()?;
-  Ok(expr)
+pub fn parse<'src>(source: &'src err::Source<'src>) -> diag::Result<ast::Prog<'src>> {
+  Parser::from(source).prog()
 }

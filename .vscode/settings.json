@@ -2,5 +2,6 @@
   "files.exclude": {
     "**/build": true,
     "**/pkg": true
-  }
+  },
+  "python.formatting.provider": "black"
 }

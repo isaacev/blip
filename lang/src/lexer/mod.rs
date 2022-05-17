@@ -40,14 +40,16 @@ struct Accumulator<'src> {
   kind: Kind,
   start: Point<'src>,
   end: Point<'src>,
+  is_newline: bool,
 }
 
 impl<'src> Accumulator<'src> {
-  fn new(kind: Kind, pt: Point<'src>, ch: char) -> Self {
+  fn new(kind: Kind, pt: Point<'src>, ch: char, is_newline: bool) -> Self {
     Accumulator {
       kind,
       start: pt,
       end: pt.next(ch),
+      is_newline,
     }
   }
 }
@@ -73,13 +75,22 @@ impl<'src> Lexer<'src> {
     }
   }
 
-  fn skip_while(&mut self, guard: CharGuard<(Point<'src>, char)>) {
-    while self.scanner.next_if(guard).is_some() {}
+  fn skip_while_whitespace(&mut self) -> bool {
+    let mut is_newline = false;
+    while let Some((_, ch)) = self.scanner.next_if(chars::is_whitespace) {
+      is_newline = is_newline || chars::is_newline(&ch);
+    }
+    is_newline
   }
 
-  fn push_if(&mut self, kind: Kind, guard: CharGuard<(Point<'src>, char)>) -> bool {
+  fn push_if(
+    &mut self,
+    kind: Kind,
+    guard: CharGuard<(Point<'src>, char)>,
+    is_newline: bool,
+  ) -> bool {
     if let Some((pt, ch)) = self.scanner.next_if(guard) {
-      self.acc = Some(Accumulator::new(kind, pt, ch));
+      self.acc = Some(Accumulator::new(kind, pt, ch, is_newline));
       true
     } else {
       false
@@ -91,7 +102,7 @@ impl<'src> Lexer<'src> {
     let span = Span::new(acc.start, acc.end);
     let lexeme = span.to_slice(self.source.contents);
 
-    Token::new(acc.kind, span, lexeme)
+    Token::new(acc.kind, span, lexeme, acc.is_newline)
   }
 
   fn next_if(&mut self, guard: CharGuard<(Point<'src>, char)>) -> bool {
@@ -110,20 +121,20 @@ impl<'src> Lexer<'src> {
   }
 
   fn read(&mut self) -> Option<Token<'src>> {
-    self.skip_while(chars::is_whitespace);
+    let is_newline = self.skip_while_whitespace();
 
-    if self.push_if(Kind::Delimiter, chars::is_delimiter) {
+    if self.push_if(Kind::Delimiter, chars::is_delimiter, is_newline) {
       Some(self.pop())
-    } else if self.push_if(Kind::Operator, chars::is_operator) {
+    } else if self.push_if(Kind::Operator, chars::is_operator, is_newline) {
       self.next_all_if(chars::is_operator);
       Some(self.pop())
-    } else if self.push_if(Kind::Word, chars::is_start_of_word) {
+    } else if self.push_if(Kind::Word, chars::is_start_of_word, is_newline) {
       self.next_all_if(chars::is_middle_of_word);
       Some(self.pop())
-    } else if self.push_if(Kind::Integer, chars::is_digit) {
+    } else if self.push_if(Kind::Integer, chars::is_digit, is_newline) {
       self.next_all_if(chars::is_digit);
       Some(self.pop())
-    } else if self.push_if(Kind::Error, chars::is_any) {
+    } else if self.push_if(Kind::Error, chars::is_any, is_newline) {
       Some(self.pop())
     } else {
       None

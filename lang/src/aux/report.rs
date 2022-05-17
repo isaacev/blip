@@ -72,6 +72,19 @@ impl Report {
     }
   }
 
+  pub fn then_from_all_inline<T, I>(&mut self, i: I)
+  where
+    T: Into<Report>,
+    I: Iterator<Item = T>,
+  {
+    for (idx, t) in i.enumerate() {
+      if idx > 0 {
+        self.space();
+      }
+      self.then_from(t);
+    }
+  }
+
   pub fn if_some<T, F>(&mut self, cond: &Option<T>, f: F)
   where
     F: Fn(&T) -> Self,

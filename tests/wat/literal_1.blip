@@ -1,1 +1,4 @@
-123
+use print
+
+main =
+  print 42

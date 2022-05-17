@@ -1,3 +1,5 @@
+use crate::wasm::FuncIndex;
+
 use super::ir;
 use super::ty;
 use super::wasm;
@@ -59,6 +61,10 @@ fn compile_expr<'a>(scope: &mut Scope<'a>, expr: &ir::Expr, code: &mut wasm::Cod
       code.push_inst(wasm::Inst::LocalSet(index));
       compile_expr(&mut subscope, &e.body, code);
     }
+    ir::Expr::Print(e) => {
+      compile_expr(scope, &e.arg, code);
+      code.push_inst(wasm::Inst::Call(wasm::FuncIndex::new(0)));
+    }
     ir::Expr::Binary(e) => {
       compile_expr(scope, &e.left, code);
       compile_expr(scope, &e.right, code);
@@ -69,6 +75,7 @@ fn compile_expr<'a>(scope: &mut Scope<'a>, expr: &ir::Expr, code: &mut wasm::Cod
         _ => todo!(),
       };
     }
+    ir::Expr::Unary(..) => unimplemented!(),
     ir::Expr::Name(e) => {
       let index = scope.lookup(&e.canonical).unwrap();
       code.push_inst(wasm::Inst::LocalGet(index));
@@ -77,27 +84,87 @@ fn compile_expr<'a>(scope: &mut Scope<'a>, expr: &ir::Expr, code: &mut wasm::Cod
       let value = e.repr.parse::<i32>().unwrap();
       code.push_inst(wasm::Inst::I32Const(value));
     }
-    _ => todo!(),
   }
 }
 
-pub fn compile(expr: &ir::Expr) -> wasm::Module {
+fn compile_sig(ty: &ty::Ty) -> wasm::Type {
+  match ty {
+    ty::Ty::Var(cell) => {
+      let var = cell.borrow();
+      match &*var {
+        ty::Var::Link(ty) => compile_sig(&ty),
+        ty::Var::Generic(..) => unimplemented!(),
+        ty::Var::Unbound(..) => unimplemented!(),
+      }
+    }
+    ty::Ty::Const(name) => match name.as_str() {
+      "int" => wasm::Type::I32,
+      name => unimplemented!("{}", name),
+    },
+    ty::Ty::Arrow(params, ret) => {
+      let mut p = wasm::LengthPrefixedVec::new();
+      for param in params {
+        p.push(compile_sig(param));
+      }
+
+      let mut r = wasm::LengthPrefixedVec::new();
+      if !ret.is_const(ty::VOID_NAME) {
+        r.push(compile_sig(&*ret));
+      }
+
+      wasm::Type::Func(p, r)
+    }
+  }
+}
+
+fn compile_item(item: &ir::Item, module: &mut wasm::Module) -> wasm::FuncIndex {
+  match item {
+    ir::Item::Defun(i) => {
+      let mut code = wasm::Code::new();
+      let mut scope = Scope::root();
+
+      for param in &i.params {
+        let ty = compile_sig(&param.ty);
+        scope.bind(&param.canonical, code.push_local(ty));
+      }
+
+      compile_expr(&mut scope, &i.body, &mut code);
+      let sig = compile_sig(&i.name.ty);
+      module.add_func(sig, code)
+    }
+  }
+}
+
+fn compile_prog(prog: &ir::Prog, module: &mut wasm::Module) -> Option<wasm::FuncIndex> {
+  let mut func_index = None;
+  for item in &prog.items {
+    func_index = Some(compile_item(item, module));
+  }
+  func_index
+}
+
+macro_rules! intrinsic {
+  ($module:expr , $name:expr , $in:ident , $out:ident) => {
+    let ty = wasm::Type::Func(vec![wasm::Type::$in].into(), vec![wasm::Type::$out].into());
+    let idx = $module.type_section.push(ty);
+    $module
+      .import_section
+      .push("", $name, wasm::ImportDesc::TypeIndex(idx));
+  };
+}
+
+fn import_intrinsics(module: &mut wasm::Module) {
+  intrinsic!(module, "log", I64, I64);
+}
+
+pub fn compile(prog: &ir::Prog) -> wasm::Module {
   let mut module = wasm::Module::new();
+  import_intrinsics(&mut module);
 
-  let mut root = Scope::root();
-  let mut code = wasm::Code::new();
+  let log_sig = compile_sig(&ty::Ty::Arrow(vec![ty::Ty::int()], Box::new(ty::Ty::int())));
+  module.type_section.push(log_sig);
 
-  compile_expr(&mut root, expr, &mut code);
-  code.push_inst(wasm::Inst::Drop);
-  code.push_inst(wasm::Inst::BlockEnd);
-
-  let sig = wasm::Type::Func(
-    wasm::LengthPrefixedVec::new(),
-    wasm::LengthPrefixedVec::new(),
-  );
-
-  let func_index = module.add_func(sig, code);
-  module.start = Some(func_index);
+  let main_index = compile_prog(prog, &mut module);
 
   module
 }
