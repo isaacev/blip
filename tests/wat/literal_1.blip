@@ -1,4 +1,1 @@
-use print
-
-main =
-  print 42
+42

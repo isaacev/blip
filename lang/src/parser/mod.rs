@@ -193,12 +193,6 @@ impl<'src> Parser<'src> {
     })
   }
 
-  fn print_expr(&mut self, keyword: Token<'src>) -> diag::Result<ast::Print<'src>> {
-    let arg = Box::new(self.expr(UNARY)?);
-    let span = Span::new(keyword.span.start, arg.end());
-    Ok(ast::Print { span, arg })
-  }
-
   fn name_expr(&mut self, word: Token<'src>) -> diag::Result<ast::Name<'src>> {
     Ok(ast::Name(word))
   }
@@ -212,8 +206,6 @@ impl<'src> Parser<'src> {
       self.paren_expr(left).map(ast::Expr::Paren)
     } else if let Some(keyword) = self.next_if_lexeme("let")? {
       self.let_expr(keyword).map(ast::Expr::Let)
-    } else if let Some(keyword) = self.next_if_lexeme("print")? {
-      self.print_expr(keyword).map(ast::Expr::Print)
     } else if let Some(word) = self.next_if_kind(Kind::Word)? {
       self.name_expr(word).map(ast::Expr::Name)
     } else if let Some(integer) = self.next_if_kind(Kind::Integer)? {
@@ -276,24 +268,7 @@ impl<'src> Parser<'src> {
   }
 
   fn item(&mut self) -> diag::Result<ast::Item<'src>> {
-    if let Some(left) = self.next_if_kind(Kind::Word)? {
-      self.defun_item(left).map(ast::Item::Defun)
-    } else if let Some(tok) = self.next()? {
-      Err(self.err_wanted_item_found_token(tok))
-    } else {
-      Err(self.err_wanted_item_found_eof())
-    }
-  }
-
-  fn defun_item(&mut self, left: Token<'src>) -> diag::Result<ast::Defun<'src>> {
-    let name = ast::Name(left);
-    let mut params = vec![];
-    while let Some(param) = self.next_if_kind(Kind::Word)? {
-      params.push(ast::Name(param));
-    }
-    self.next_token(Kind::Operator, "=")?;
-    let body = self.expr(LOWEST)?;
-    Ok(ast::Defun { name, params, body })
+    self.expr(LOWEST).map(ast::Item::Expr)
   }
 
   fn prog(&mut self) -> diag::Result<ast::Prog<'src>> {

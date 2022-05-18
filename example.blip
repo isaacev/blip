@@ -1,4 +1,0 @@
-use print :: (Int) -> Void
-
-main =
-  print 42

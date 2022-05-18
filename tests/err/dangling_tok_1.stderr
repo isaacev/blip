@@ -1,7 +1,0 @@
-
-  ERROR: expected the end-of-file, found word
-
-    : ./tests/err/dangling_tok_1.blip
-  1 | let x = 123 in x y
-    |                  ~
-

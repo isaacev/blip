@@ -1,6 +1,0 @@
-(module
-  (type (;0;) (func))
-  (func (;0;) (type 0)
-    i32.const 123
-    drop)
-  (start 0))
